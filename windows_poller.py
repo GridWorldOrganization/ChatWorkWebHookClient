@@ -697,6 +697,45 @@ def handle_status_command(member, room_id):
     return "\n".join(lines)
 
 
+def handle_talk_command(member, room_id, new_mode):
+    """/talk N: 該当ルームの会話モードを変更し、mode.env を更新する"""
+    if new_mode not in TALK_MODES:
+        return f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。"
+
+    mode_env_path = os.path.join(member["dir"], "mode.env")
+    target_key = f"TALK_MODE={room_id}:"
+
+    # mode.env を読み込み、該当ルームの行を更新 or 追加
+    lines = []
+    updated = False
+    if os.path.exists(mode_env_path):
+        try:
+            with open(mode_env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith(target_key):
+                        lines.append(f"TALK_MODE={room_id}:{new_mode}\n")
+                        updated = True
+                    else:
+                        lines.append(line)
+        except Exception as e:
+            log.error(f"mode.env 読み込みエラー: {e}")
+            return f"mode.env の読み込みに失敗しました: {e}"
+
+    if not updated:
+        lines.append(f"TALK_MODE={room_id}:{new_mode}\n")
+
+    try:
+        with open(mode_env_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:
+        log.error(f"mode.env 書き込みエラー: {e}")
+        return f"mode.env の書き込みに失敗しました: {e}"
+
+    mode_name = TALK_MODES[new_mode]["name"]
+    log.info(f"/talk コマンド: {member['name']} room={room_id} → モード{new_mode}({mode_name})")
+    return f"[info]会話モードを {new_mode}（{mode_name}）に変更しました。[/info]"
+
+
 def handle_session_command(room_id):
     """/session: 全メンバーの AI 実行状態を報告する"""
     lines = [f"[info][title]/session[/title]"]
@@ -845,8 +884,19 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # --- メンテナンスコマンド判定 ---
+    # --- コマンド判定 ---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
+
+    # /talk N: 会話モード変更（全許可ルームで動作、AI不使用）
+    talk_match = re.match(r'^/talk\s+(\d)$', raw_command)
+    if talk_match:
+        new_mode = int(talk_match.group(1))
+        log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
+        result_msg = handle_talk_command(member, room_id, new_mode)
+        chatwork_post(member["cw_token"], room_id, result_msg)
+        return
+
+    # /status, /session: メンテナンスルーム限定
     if MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
         if raw_command == "/status":
             log.info(f"/status コマンド検出: {member['name']}")
