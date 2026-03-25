@@ -21,11 +21,13 @@ ChatWorkWebHookClient/
 │   │   ├── mode.env.example
 │   │   └── setup_member.bat
 │   ├── 01_yokota/             # 横田百恵の設定（※Gitに含まれない）
-│   │   ├── 01_persona.md
-│   │   └── mode.env           # デフォルト会話モード
-│   └── 02_fujino/             # 藤野楓の設定（※Gitに含まれない）
-│       ├── 01_persona.md
-│       └── mode.env
+│   │   ├── 01_persona.md      # ペルソナ設定
+│   │   ├── mode.env           # 会話モード設定
+│   │   ├── CLAUDE.md          # Claude Code が自動読み込みする記憶（任意）
+│   │   ├── room_426936385.md  # ルーム別口調設定（任意）
+│   │   ├── chat_history_*.md  # 会話記録（自動生成）
+│   │   └── rejected_rooms.log # 拒否ログ（自動生成）
+│   └── 02_fujino/             # 藤野楓の設定（同上）
 └── .gitignore
 ```
 
@@ -46,32 +48,19 @@ cd ChatWorkWebHookClient
 copy config.env.example config.env
 ```
 
-`config.env` をテキストエディタで開き、以下を設定：
-
-```env
-# 必須: 接続情報
-SQS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/XXXX/chatwork-webhook-queue
-CW_TOKEN_GURIKO=（実際のトークン）
-CW_TOKEN_YOKOTA=（実際のトークン）
-CW_TOKEN_FUJINO=（実際のトークン）
-CW_ERROR_ROOM_ID=428354226
-
-# オプション: 動作パラメータ（デフォルト値でOKなら省略可）
-CLAUDE_TIMEOUT=60
-FOLLOWUP_WAIT_SECONDS=30
-MAX_AI_CONVERSATION_TURNS=10
-REPLY_COOLDOWN_SECONDS=15
-```
-
 > **config.env にはAPIトークン等の機密情報が入ります。絶対にGitにコミットしないでください。**（.gitignore で除外済み）
 
-### 3. AWS CLI セットアップ
+### 3. 初回セットアップ
 
-`setup_windows.bat` を編集し、AWSアクセスキーを実際の値に書き換えてからダブルクリックで実行します。
+`setup_windows.bat` をダブルクリックで実行します。以下を自動チェック・セットアップします：
+
+1. Python 確認
+2. pip パッケージインストール（boto3, requests）
+3. Claude Code 確認
+4. AWS CLI 確認
+5. AWS プロファイル設定
 
 ### 4. メンバーフォルダを作成
-
-#### 方法A: setup_member.bat を使う
 
 ```
 cd members\templates
@@ -80,13 +69,6 @@ setup_member.bat
 
 メンバーフォルダ名（例: `01_yokota`）を入力するとフォルダが作成され、テンプレートがコピーされます。
 
-#### 方法B: 手動作成
-
-```
-mkdir members\01_yokota
-copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
-```
-
 ### 5. ペルソナを設定
 
 `members\01_yokota\01_persona.md` をテキストエディタで開き、キャラクター設定を記入します。
@@ -94,9 +76,12 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 設定項目: 性格・話し方・趣味・最近の出来事・口癖・苦手なもの等。
 詳細は `members/templates/01_persona.md.example` を参照。
 
-> メンバーフォルダ（`01_yokota/` 等）は `.gitignore` 対象です。ペルソナにはトークンや個人的な設定が含まれるためGitには含まれません。
+### 6. 会話モードを設定
 
-### 6. 起動
+`members\01_yokota\mode.env` を作成（テンプレート: `members/templates/mode.env.example`）。
+詳細は「会話モード」セクション参照。
+
+### 7. 起動
 
 `start_poller.bat` をダブルクリックします。
 
@@ -104,6 +89,8 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 ```
 === Chatwork Webhook Poller 起動 ===
 === config.env パラメータ ===
+  CLAUDE_COMMAND=claude
+  CLAUDE_MODEL=claude-haiku-4-5
   CLAUDE_TIMEOUT=60秒
   FOLLOWUP_WAIT_SECONDS=30秒
   MAX_AI_CONVERSATION_TURNS=10ターン
@@ -112,17 +99,20 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
   藤野 楓 (02_fujino): 指示ファイル 1件, cwd=...\members\02_fujino
 ```
 
+**停止方法:** Ctrl+C で安全に停止します（処理中のメッセージは完了してから終了）。
+
 ## 動作の仕組み
 
 ### 基本フロー
 
 1. SQS キューを**空になるまで全件読み込み**
-2. 宛先メンバーごとにメッセージをグループ化
+2. 宛先メンバーごとにメッセージをグループ化（自分自身のメッセージは自動除外）
 3. メンバーごとに**並列**で以下を実行：
    - 複数メッセージが溜まっていた場合、先行分を文脈として含め、最後の1件に対して返信
    - `members/00_common_rules.md` + メンバー個別の `.md` をプロンプトに組み込む
-   - Claude Code（`claude -p`）を実行して返信文を生成
+   - Claude Code（`claude -p --model`）を実行して返信文を生成
 4. Chatwork API 経由でルームに返信（`[rp]` タグ自動付与）
+5. 会話記録を `chat_history_{ルームID}.md` に保存
 
 ### 特殊処理
 
@@ -130,10 +120,13 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 |------|------|
 | **[rp]タグ自動付与** | AI出力に`[To:]`や`[rp]`がなければ、コード側で送信者への`[rp]`を自動付与 |
 | **[To:]自発発言** | AIが送信者以外に話しかける場合、`[To:アカウントID]名前さん` を出力可能 |
-| **フォローアップ** | 「確認します」等のキーワード検出 → 待機 → 情報収集 → 再返信 → 「おやすみなさい」 |
+| **フォローアップ** | 「確認します」等のキーワード検出 → 待機 → 情報収集 → 再返信 |
 | **AI会話チェーン** | 人間の発言で開始、AI同士は `MAX_AI_CONVERSATION_TURNS` で自動停止 |
 | **連投防止** | 同一メンバーは前回発言から `REPLY_COOLDOWN_SECONDS` 秒待機 |
 | **sender補完** | SQSのsender_account_idが空の場合、Chatwork APIから自動取得 |
+| **ルーム別口調** | `room_{ルームID}.md` があればそのルーム専用の指示を追加読み込み |
+| **CLAUDE.md** | メンバーフォルダに `CLAUDE.md` を置くとClaude Codeが自動で読み込む（記憶・指示用） |
+| **許可外ルーム拒否** | ホワイトリスト外のルームはClaude起動せず `rejected_rooms.log` に記録 |
 
 ## 設定パラメータ（config.env）
 
@@ -151,12 +144,16 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
+| `AWS_PROFILE` | (なし) | AWSプロファイル名。未設定なら`AWS_ACCESS_KEY_ID`で直接認証 |
+| `CLAUDE_COMMAND` | claude | Claude Code のコマンドパス。PATHで見つからない場合にフルパス指定 |
+| `CLAUDE_MODEL` | claude-haiku-4-5 | 使用モデル（`claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-6`） |
 | `CLAUDE_TIMEOUT` | 60 | Claude Code 実行タイムアウト（秒） |
 | `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ返信までの待機（秒） |
 | `MAX_AI_CONVERSATION_TURNS` | 10 | AI同士の会話上限メッセージ数 |
 | `REPLY_COOLDOWN_SECONDS` | 15 | 同一メンバーの連投防止クールダウン（秒） |
-| `MAINTENANCE_ROOM_ID` | (空) | /status コマンドを受け付けるルームID |
-| `CLAUDE_COMMAND` | claude | Claude Code のコマンドパス |
+| `ALLOWED_ROOMS_YOKOTA` | (空=全許可) | 横田の許可ルームID（カンマ区切り） |
+| `ALLOWED_ROOMS_FUJINO` | (空=全許可) | 藤野の許可ルームID（カンマ区切り） |
+| `MAINTENANCE_ROOM_ID` | (空) | メンテナンスコマンドを受け付けるルームID |
 
 ## 会話モード
 
@@ -169,16 +166,8 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 | 2 | ペルソナ | ペルソナ設定に準拠し感情豊かに話す。キャラクターらしい口調 |
 | 3 | ペルソナ+ | ペルソナに加え、ルーム内の他メンバーに時折話を振る（3〜4回に1回） |
 
-### 設定方法
+### 設定方法（メンバーフォルダの mode.env）
 
-**メンバーのデフォルトモード（メンバーフォルダ内の `mode.env`）:**
-
-```
-members/01_yokota/mode.env
-members/02_fujino/mode.env
-```
-
-中身の例：
 ```env
 # デフォルト（0=メンテナンス/1=業務/2=ペルソナ/3=ペルソナ+）
 TALK_MODE=2
@@ -188,26 +177,35 @@ TALK_MODE=426936385:3
 TALK_MODE=427388771:1
 ```
 
-上記例だと:
-- ルーム426936385ではペルソナ+、427388771では業務、その他はTALK_MODE=2(ペルソナ)
+上記例: ルーム426936385ではペルソナ+、427388771では業務、その他はペルソナ
 
 `mode.env` がなければデフォルト1（業務）。テンプレートは `members/templates/mode.env.example`。
 
 **優先順位:** ルーム別(ルームID:モード) > デフォルト(TALK_MODE) > 1(業務)
 
+## メンテナンスコマンド
+
+`MAINTENANCE_ROOM_ID` で指定したルームで、メンバー宛に以下のコマンドを送信できます。
+Claudeは起動せず、即座に結果を返します。
+
+| コマンド | 説明 |
+|---------|------|
+| `/status` | メンバーの設定状況（.mdファイル一覧、会話モード、パラメータ値） |
+| `/session` | 全メンバーのClaude実行状態（実行中/停止中、経過秒数、モデル名） |
+
 ## メンバーの追加方法
 
 1. `members/templates/setup_member.bat` でフォルダ作成
 2. `01_persona.md` にキャラクター設定を記入
-3. `windows_poller.py` の `MEMBERS` に新メンバーを追加
-4. `config.env` に `CW_TOKEN_新メンバー=...` を追加
-5. ポーラー再起動
+3. `mode.env` に会話モードを設定
+4. `windows_poller.py` の `MEMBERS` に新メンバーを追加
+5. `config.env` に `CW_TOKEN_新メンバー=...` と `ALLOWED_ROOMS_新メンバー=...` を追加
+6. ポーラー再起動
 
 ## 前提条件
 
 - Windows 10/11
 - Python 3.x
-- AWS CLI v2（`chatwork-webhook` プロファイルが設定済み）
 - Claude Code（`claude` コマンドが使えること）
 - AWS SQS キューおよび Chatwork Webhook（Lambda）の設定が完了していること
 
@@ -221,33 +219,24 @@ TALK_MODE=427388771:1
 | AI同士が止まらない | `MAX_AI_CONVERSATION_TURNS` を下げる |
 | 連続で同じ質問をぶつける | `REPLY_COOLDOWN_SECONDS` を上げる |
 | `Claude Code が見つかりません: claude` | 下記「PATHの設定」を参照 |
+| Ctrl+Cで停止しない | 処理中のメッセージ完了を待っています。しばらく待ってください |
 
 ### PATHの設定
 
-`claude` コマンドが `start_poller.bat`（cmd.exe）から見つからない場合、Windows のシステム環境変数に PATH を追加する必要があります。
+`claude` コマンドが `start_poller.bat`（cmd.exe）から見つからない場合：
 
-**1. claude のインストール先を確認（PowerShell で実行）**
-
+**1. claude のインストール先を確認（PowerShell）**
 ```powershell
 where.exe claude
 ```
 
-出力例:
-```
-C:\Users\tobis\AppData\Roaming\npm\claude
-C:\Users\tobis\AppData\Roaming\npm\claude.cmd
-```
-
-**2. PATH にフォルダを追加（PowerShell で実行）**
-
-上記の例なら `C:\Users\tobis\AppData\Roaming\npm` を追加:
-
+**2. PATH に追加（PowerShell）**
 ```powershell
-[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Users\tobis\AppData\Roaming\npm", "User")
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Users\ユーザー名\AppData\Roaming\npm", "User")
 ```
 
-**3. コマンドプロンプト/PowerShell を開き直す**
+**3. ウィンドウを開き直して** `start_poller.bat` を再実行。
 
-既存のウィンドウには PATH 変更が反映されません。新しいウィンドウで `start_poller.bat` を実行してください。
+または `config.env` に `CLAUDE_COMMAND=C:\...\claude.cmd` でフルパス指定も可能。
 
-> **注意**: `claude install` でネイティブビルドに切り替えた場合、インストール先が異なる可能性があります。`where.exe claude` で実際のパスを確認してください。
+> `claude install` でネイティブビルドに切り替えた場合、インストール先が異なります。`where.exe claude` で確認してください。
