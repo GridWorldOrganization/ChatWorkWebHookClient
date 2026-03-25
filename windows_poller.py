@@ -241,6 +241,12 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
+    # AIメンバー同士の会話は無視（無限ループ防止）
+    all_member_ids = {str(m["account_id"]) for m in MEMBERS.values()}
+    if str(sender) in all_member_ids:
+        log.info(f"AIメンバーからの発言のためスキップ: sender={sender}")
+        return
+
     member_dir = member["dir"]
 
     # 指示ファイル読み込み
