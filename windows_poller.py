@@ -458,13 +458,29 @@ def handle_status_command(member, room_id):
     # config.envパラメータ
     allowed = member.get("allowed_rooms", set())
     rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
+    # ルーム名のキャッシュ取得
+    room_names = {}
+    if member.get("cw_token"):
+        try:
+            res = requests.get(
+                f"{CW_API_BASE}/rooms",
+                headers={"X-ChatWorkToken": member["cw_token"]}
+            )
+            if res.status_code == 200:
+                for r in res.json():
+                    room_names[str(r["room_id"])] = r.get("name", "")
+        except Exception:
+            pass
+
     # モード設定
     talk_mode_default, talk_mode_rooms = _load_talk_modes(member["dir"])
     lines.append(f"\n■ 会話モード (mode.env)")
     lines.append(f"  TALK_MODE={talk_mode_default}({TALK_MODES.get(talk_mode_default, {}).get('name', '不明')})")
     if talk_mode_rooms:
         for rid, mode in sorted(talk_mode_rooms.items()):
-            lines.append(f"  TALK_MODE={rid}:{mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
+            rname = room_names.get(rid, "")
+            rname_str = f"{rname} " if rname else ""
+            lines.append(f"  TALK_MODE={rname_str}{rid}:{mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
     else:
         lines.append(f"  ルーム別指定: なし")
 
@@ -475,7 +491,14 @@ def handle_status_command(member, room_id):
     lines.append(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
     lines.append(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}")
     lines.append(f"  REPLY_COOLDOWN_SECONDS={REPLY_COOLDOWN_SECONDS}秒")
-    lines.append(f"  許可ルーム=[{rooms_str}]")
+    if allowed:
+        allowed_with_names = []
+        for rid in sorted(allowed):
+            rname = room_names.get(rid, "")
+            allowed_with_names.append(f"{rname}({rid})" if rname else rid)
+        lines.append(f"  許可ルーム=[{', '.join(allowed_with_names)}]")
+    else:
+        lines.append(f"  許可ルーム=なし（全送信不可）")
     lines.append(f"  cwd={member_dir}")
 
     lines.append("[/info]")
