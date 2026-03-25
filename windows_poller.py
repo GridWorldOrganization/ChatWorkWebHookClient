@@ -303,6 +303,9 @@ def process_message(body: dict):
     # 指示ファイル読み込み
     instructions = load_instructions(member_dir)
 
+    # 事前に届いたメッセージの文脈
+    prior_context = body.get("_prior_context", "")
+
     # Claude Code に渡すプロンプト
     prompt = (
         f"あなたは「{member['name']}」としてChatworkで返信します。\n"
@@ -313,7 +316,14 @@ def process_message(body: dict):
         f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n"
         f"例: [To:11204912]藤野 楓さん\n\n"
         f"=== 返信の指示 ===\n{instructions}\n\n"
-        f"=== 受信メッセージ情報 ===\n"
+    )
+    if prior_context:
+        prompt += (
+            f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n"
+            f"{prior_context}\n\n"
+        )
+    prompt += (
+        f"=== 受信メッセージ情報（これに返信すること） ===\n"
         f"ルームID: {room_id}\n"
         f"送信者アカウントID: {sender}\n"
         f"送信者名: {sender_name}\n"
@@ -442,41 +452,52 @@ def get_queue_count(sqs):
 # メンバーごとの排他ロック（同一メンバーの同時実行を防止）
 _member_locks = {key: threading.Lock() for key in MEMBERS}
 
-def process_message_thread(body_data, sqs_msg_id, receipt_handle, sqs):
-    """メッセージをスレッドで処理し、完了後にSQSから削除"""
+def process_member_batch(member_key, msg_list, sqs):
+    """メンバー宛の複数メッセージをまとめて処理し、1回のClaude実行で返信"""
+    member = MEMBERS[member_key]
+    lock = _member_locks.get(member_key)
+    if lock:
+        lock.acquire()
     try:
-        # 宛先メンバーを特定してロック取得
-        member = find_target_member(body_data)
-        if not member:
-            member = MEMBERS["01_yokota"]
-        member_key = None
-        for k, m in MEMBERS.items():
-            if m["account_id"] == member["account_id"]:
-                member_key = k
-                break
-        if not member_key:
-            member_key = "01_yokota"
+        # 最後のメッセージだけをprocess_messageに渡す（それ以前は文脈として含める）
+        if len(msg_list) == 1:
+            # 1件だけなら従来通り
+            process_message(msg_list[0][0])
+        else:
+            # 複数件: 全メッセージを文脈としてまとめ、最後のメッセージに対して返信
+            context_lines = []
+            for i, (body_data, _) in enumerate(msg_list[:-1]):
+                sender_name = body_data.get("sender_name", "")
+                body_text = body_data.get("body", "")
+                # sender_name が空の場合はAPIから取得を試みる
+                if not sender_name:
+                    room_id = body_data.get("room_id", "")
+                    msg_id = body_data.get("message_id", "")
+                    if msg_id:
+                        info = get_message_info(member["cw_token"], room_id, msg_id)
+                        if info:
+                            sender_name = info.get("name", "不明")
+                if not sender_name:
+                    sender_name = "不明"
+                context_lines.append(f"[{sender_name}] {body_text}")
 
-        lock = _member_locks.get(member_key)
-        if lock:
-            log.info(f"[{member['name']}] ロック取得待ち...")
-            lock.acquire()
-            log.info(f"[{member['name']}] ロック取得、処理開始")
-        try:
-            process_message(body_data)
-        finally:
-            if lock:
-                lock.release()
-                log.info(f"[{member['name']}] ロック解放")
+            last_body = msg_list[-1][0]
+            # 文脈情報を last_body に追加
+            last_body["_prior_context"] = "\n".join(context_lines)
+            log.info(f"[{member['name']}] バッチ処理: {len(msg_list)}件まとめ（{len(msg_list)-1}件を文脈、1件を処理対象）")
+            process_message(last_body)
     except Exception as e:
-        log.error(f"メッセージ処理エラー: {e}")
-        notify_error("メッセージ処理エラー", f"{e}")
+        log.error(f"バッチ処理エラー [{member['name']}]: {e}")
+        notify_error(f"バッチ処理エラー [{member['name']}]", f"{e}")
     finally:
-        try:
-            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
-            log.info(f"メッセージ削除: {sqs_msg_id}")
-        except Exception as e:
-            log.error(f"SQSメッセージ削除エラー: {e}")
+        if lock:
+            lock.release()
+        # 全メッセージをSQSから削除
+        for _, msg in msg_list:
+            try:
+                sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
+            except Exception as e:
+                log.error(f"SQSメッセージ削除エラー: {e}")
 
 def main():
     sqs = boto3.client("sqs", region_name=AWS_REGION)
@@ -510,34 +531,68 @@ def main():
 
     while True:
         try:
-            res = sqs.receive_message(
-                QueueUrl=QUEUE_URL,
-                MaxNumberOfMessages=10,
-                WaitTimeSeconds=5
-            )
-            messages = res.get("Messages", [])
+            # ===== フェーズ1: キューを空になるまで全件読み込み =====
+            all_messages = []
+            while True:
+                res = sqs.receive_message(
+                    QueueUrl=QUEUE_URL,
+                    MaxNumberOfMessages=10,
+                    WaitTimeSeconds=5
+                )
+                batch = res.get("Messages", [])
+                if not batch:
+                    break
+                all_messages.extend(batch)
+                # まだ残りがあるか確認
+                remaining = get_queue_count(sqs)
+                log.info(f"キュー読み込み中: 今回{len(batch)}件, 累計{len(all_messages)}件, 残り約{remaining}件")
+                if remaining <= 0:
+                    break
 
-            if not messages:
+            if not all_messages:
                 continue
 
-            remaining = get_queue_count(sqs)
-            if remaining > 0:
-                log.info(f"キュー待機中: 約{remaining}件")
+            log.info(f"キュー読み込み完了: 合計{len(all_messages)}件")
 
-            for msg in messages:
+            # ===== フェーズ2: メンバーごとにメッセージをグループ化 =====
+            member_messages = {}  # key: member_key, value: list of (body_data, sqs_msg)
+            orphan_messages = []  # 宛先不明
+
+            for msg in all_messages:
                 try:
                     body_data = json.loads(msg["Body"])
-                    t = threading.Thread(
-                        target=process_message_thread,
-                        args=(body_data, msg["MessageId"], msg["ReceiptHandle"], sqs),
-                        daemon=True
-                    )
-                    t.start()
-                    log.info(f"スレッド起動: {msg['MessageId']}")
+                    member = find_target_member(body_data)
+                    if not member:
+                        member = MEMBERS["01_yokota"]
+                    member_key = None
+                    for k, m in MEMBERS.items():
+                        if m["account_id"] == member["account_id"]:
+                            member_key = k
+                            break
+                    if not member_key:
+                        member_key = "01_yokota"
+                    if member_key not in member_messages:
+                        member_messages[member_key] = []
+                    member_messages[member_key].append((body_data, msg))
                 except Exception as e:
-                    log.error(f"スレッド起動エラー: {e}")
-                    notify_error("スレッド起動エラー", f"{e}")
+                    log.error(f"メッセージ解析エラー: {e}")
                     sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
+
+            # ===== フェーズ3: メンバーごとに並列処理 =====
+            threads = []
+            for member_key, msg_list in member_messages.items():
+                t = threading.Thread(
+                    target=process_member_batch,
+                    args=(member_key, msg_list, sqs),
+                    daemon=True
+                )
+                t.start()
+                threads.append(t)
+                log.info(f"バッチスレッド起動: {member_key} ({len(msg_list)}件)")
+
+            # 全スレッド完了待ち
+            for t in threads:
+                t.join()
 
         except Exception as e:
             log.error(f"ポーリングエラー: {e}")
