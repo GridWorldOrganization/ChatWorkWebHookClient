@@ -209,14 +209,24 @@ def gather_room_context(token, room_id):
         log.error(f"メッセージ取得エラー: {e}")
     return "\n\n".join(context_parts)
 
-def load_instructions(member_dir):
-    """共通指示 + メンバー固有指示を読み込んで指示文を構築"""
+def load_instructions(member_dir, room_id=""):
+    """共通指示 + メンバー固有指示 + ルーム固有指示を読み込んで指示文を構築"""
     instructions = []
     # 1. 共通ルール（clients直下の 00_ で始まる .md のみ）を読み込む
     common_md_files = sorted(glob.glob(os.path.join(CLIENTS_DIR, "00_*.md")))
-    # 2. メンバー固有の .md を読み込む
-    member_md_files = sorted(glob.glob(os.path.join(member_dir, "*.md")))
-    all_md_files = common_md_files + member_md_files
+    # 2. メンバー固有の .md を読み込む（room_*.md と chat_history_*.md は除外）
+    member_md_files = sorted([
+        f for f in glob.glob(os.path.join(member_dir, "*.md"))
+        if not os.path.basename(f).startswith("room_")
+        and not os.path.basename(f).startswith("chat_history_")
+    ])
+    # 3. ルーム固有の .md（あれば）
+    room_md_files = []
+    if room_id:
+        room_md = os.path.join(member_dir, f"room_{room_id}.md")
+        if os.path.exists(room_md):
+            room_md_files = [room_md]
+    all_md_files = common_md_files + member_md_files + room_md_files
     for md_path in all_md_files:
         try:
             with open(md_path, "r", encoding="utf-8") as f:
@@ -378,7 +388,7 @@ def process_message(body: dict):
                 time.sleep(wait)
 
     # 指示ファイル読み込み
-    instructions = load_instructions(member_dir)
+    instructions = load_instructions(member_dir, room_id)
 
     # 事前に届いたメッセージの文脈
     prior_context = body.get("_prior_context", "")
