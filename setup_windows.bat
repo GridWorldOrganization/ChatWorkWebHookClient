@@ -1,5 +1,5 @@
-@echo off
-chcp 65001 >nul
+@echo on
+chcp 65001
 cd /d "%~dp0"
 echo === Chatwork Webhook Poller セットアップ ===
 echo.
