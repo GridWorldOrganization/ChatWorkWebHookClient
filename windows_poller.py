@@ -1,10 +1,10 @@
 """
 Chatwork Webhook SQS Poller for Windows PC
-SQSキューからメッセージを1件ずつ取得し、Claude Codeをバッチ実行する
-※ Claude Code は常に1プロセスのみ実行（直列処理）
-※ 各担当者フォルダ内の .md ファイルで返答方針を指示
-※ Claude Code の出力を担当者として Chatwork に返信
-※ エラー時はグリ姉でルーム 428354226 に報告
+SQSキューからメッセージをバッチ取得し、メンバーごとに並列でClaude Codeを実行する
+※ メンバーごとに別スレッド・別cwdで並列実行（同一メンバーは排他制御）
+※ clients/00_common_rules.md + メンバー個別の .md でAIの振る舞いを制御
+※ Claude Code の出力を担当者として Chatwork に返信（[rp]タグ自動付与）
+※ エラー時はグリ姉アカウントでエラー報告ルームに通知
 """
 import boto3
 import json
@@ -14,7 +14,6 @@ import logging
 import requests
 import os
 import glob
-import re
 import threading
 from datetime import datetime
 
@@ -265,7 +264,7 @@ def find_target_member(body):
 
 def process_message(body: dict):
     """SQSメッセージを処理してClaude Codeを実行し、Chatworkで返信"""
-    log.info(f"SQS body: {body}")
+    log.debug(f"SQS body: {body}")
     room_id = body.get("room_id", "")
     sender = body.get("sender_account_id", "")
     message_id = body.get("message_id", "")
@@ -317,7 +316,7 @@ def process_message(body: dict):
         )
         # 拒否ログをメンバーフォルダに記録
         try:
-            reject_log = os.path.join(member_dir, "rejected_rooms.log")
+            reject_log = os.path.join(member["dir"], "rejected_rooms.log")
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(reject_log, "a", encoding="utf-8") as f:
                 f.write(f"[{now}] room={room_id} sender={sender_name}(ID:{sender}) msg={message[:200]}\n")
@@ -406,11 +405,13 @@ def process_message(body: dict):
         log.info(f"<<< Claude Code 実行完了 [{member['name']}] (exit={result.returncode})")
 
         # conversation_id を stderr から抽出して保存
+        # claude --conversation は conversation_id（UUID形式等）を stderr に出力する
         if result.stderr:
+            import re as _re
             for line in result.stderr.splitlines():
                 line = line.strip()
-                # claude --conversation は conversation_id を stderr に出力する
-                if line and not line.startswith("[") and len(line) < 100:
+                # UUID形式またはハイフン/英数字のID文字列を検出
+                if line and _re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
                     with _conv_id_lock:
                         _conversation_ids[conv_key] = line
                         log.info(f"会話ID保存: {conv_key} = {line}")
@@ -444,7 +445,6 @@ def process_message(body: dict):
                     _last_reply_time[member_key] = time.time()
 
             # フォローアップ判定（元のAI出力で判定、[rp]タグ付与前のテキスト）
-            raw_reply = result.stdout.strip()
             if needs_followup(raw_reply):
                 log.info(f"フォローアップ検出: {FOLLOWUP_WAIT_SECONDS}秒待機します")
                 time.sleep(FOLLOWUP_WAIT_SECONDS)
