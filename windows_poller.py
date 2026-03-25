@@ -574,9 +574,9 @@ def process_message(body: dict):
             chatwork_post(member["cw_token"], room_id, session_msg)
             return
 
-    # ルームIDホワイトリスト判定
+    # ルームIDホワイトリスト判定（空=全送信不可）
     allowed = member.get("allowed_rooms", set())
-    if allowed and str(room_id) not in allowed:
+    if not allowed or str(room_id) not in allowed:
         log.warning(
             f"[許可されていないルーム] "
             f"メンバー={member['name']}, "

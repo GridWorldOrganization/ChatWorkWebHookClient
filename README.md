@@ -136,7 +136,7 @@ ALLOWED_ROOMS=426936385,427388771
 | `NAME` | 必須 | メンバーの表示名 |
 | `ACCOUNT_ID` | 必須 | ChatWork アカウントID |
 | `CW_TOKEN` | 必須 | ChatWork APIトークン |
-| `ALLOWED_ROOMS` | 任意 | 許可ルームID（カンマ区切り。空=全ルーム許可） |
+| `ALLOWED_ROOMS` | 必須 | 許可ルームID（カンマ区切り。空または未設定=全送信不可） |
 
 ### 6. ペルソナを設定
 
