@@ -182,6 +182,10 @@ _chain_lock = threading.Lock()
 # シャットダウンフラグ
 _shutdown_requested = False
 
+# 実行中のClaudeプロセスを追跡（強制終了用）
+_active_processes = []
+_process_lock = threading.Lock()
+
 # メンバーごとのセッション状態
 # key: member_key, value: {"status": "idle"|"running", "started": timestamp, "room_id": str, "model": str}
 _session_states = {key: {"status": "idle", "started": None, "room_id": "", "model": ""} for key in MEMBERS}
@@ -366,9 +370,7 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
         log.error(f"会話記録保存エラー: {e}")
 
 def run_claude(prompt, cwd, member_name):
-    """Claude Codeを実行。Windows CreateProcess制限(32,767文字)に対するガード付き。"""
-    # Windows CreateProcess のコマンドライン長制限チェック
-    # Windows CreateProcess 制限 32,767文字。他の引数・クォート分を差し引く
+    """Claude Codeを実行。プロセス追跡付き。"""
     MAX_PROMPT_LEN = 31000 - len(CLAUDE_COMMAND) - len(CLAUDE_MODEL) - 50
     if len(prompt) > MAX_PROMPT_LEN:
         log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_PROMPT_LEN}文字")
@@ -379,24 +381,68 @@ def run_claude(prompt, cwd, member_name):
     log.info(f">>> Claude Code 実行開始 [{member_name}] model={CLAUDE_MODEL} cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
              f" prompt_len={len(prompt)}")
 
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd
+    )
+
+    # プロセスを追跡リストに登録
+    with _process_lock:
+        _active_processes.append(proc)
+
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            timeout=CLAUDE_TIMEOUT
-        )
-
-        log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={result.returncode})")
-
+        stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
+        log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={proc.returncode})")
+        # subprocess.run 互換の結果オブジェクトを返す
+        result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         return result
 
     except subprocess.TimeoutExpired:
         log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
+        proc.kill()
+        proc.wait()
+        log.info(f"タイムアウトによりプロセス強制終了: pid={proc.pid}")
         raise
+
+    finally:
+        with _process_lock:
+            if proc in _active_processes:
+                _active_processes.remove(proc)
+
+def kill_all_claude_processes():
+    """全ての実行中Claudeプロセスを強制終了"""
+    with _process_lock:
+        for proc in _active_processes:
+            try:
+                proc.kill()
+                log.info(f"Claudeプロセス強制終了: pid={proc.pid}")
+            except Exception:
+                pass
+        _active_processes.clear()
+
+def check_orphan_claude_processes():
+    """起動時に残留Claudeプロセスを検知・警告"""
+    try:
+        if os.name == 'nt':
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {os.path.basename(CLAUDE_COMMAND)}*", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+            )
+            lines = [l for l in result.stdout.strip().splitlines() if l and "INFO:" not in l]
+            if lines:
+                log.warning(f"残留Claudeプロセスを検出（{len(lines)}件）:")
+                for line in lines:
+                    log.warning(f"  {line}")
+                log.warning("前回の強制終了で残った可能性があります。手動で終了するか、このまま続行してください。")
+                return len(lines)
+    except Exception as e:
+        log.warning(f"残留プロセス検知エラー: {e}")
+    return 0
 
 def handle_status_command(member, room_id):
     """メンテナンスコマンド /status: メンバーの設定状況を報告"""
@@ -954,6 +1000,11 @@ def main():
             log.info(f"      - {os.path.basename(f)}")
     log.info(f"メンバー合計: {len(MEMBERS)}名")
 
+    # 残留Claudeプロセス検知
+    orphans = check_orphan_claude_processes()
+    if orphans:
+        log.warning(f"残留プロセス {orphans}件 を検出しました")
+
     while not _shutdown_requested:
         try:
             # ===== フェーズ1: キューを空になるまで全件読み込み =====
@@ -1032,10 +1083,12 @@ def main():
     log.info("=== Chatwork Webhook Poller 停止 ===")
 
 def _signal_handler(sig, frame):
-    """Ctrl+C / SIGTERM でgraceful shutdownを開始"""
+    """Ctrl+C / SIGTERM でgraceful shutdownを開始し、子プロセスをkill"""
     global _shutdown_requested
     _shutdown_requested = True
-    log.info("シャットダウン要求を受信しました。現在の処理完了後に終了します...")
+    log.info("シャットダウン要求を受信。実行中のClaudeプロセスを終了します...")
+    kill_all_claude_processes()
+    log.info("シャットダウン処理完了。ポーラーを停止します。")
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, _signal_handler)
