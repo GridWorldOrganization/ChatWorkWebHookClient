@@ -8,8 +8,7 @@ REM config.env の存在確認
 if not exist "config.env" (
     echo [ERROR] config.env が見つかりません
     echo config.env.example をコピーして config.env を作成してください
-    pause
-    exit /b 1
+    goto :END
 )
 
 REM config.env から環境変数を読み込む
@@ -29,9 +28,7 @@ if errorlevel 1 (
     echo   https://www.python.org/downloads/
     echo.
     echo   インストール時に「Add Python to PATH」にチェックを入れること
-    echo.
-    pause
-    exit /b 1
+    goto :END
 )
 python --version
 echo   OK
@@ -61,9 +58,7 @@ if errorlevel 1 (
     echo.
     echo   npmがない場合は Node.js を先にインストール:
     echo     https://nodejs.org/
-    echo.
-    pause
-    exit /b 1
+    goto :END
 )
 claude --version
 echo   OK
@@ -84,9 +79,7 @@ if errorlevel 1 (
     echo.
     echo   3. インストール完了後、このコマンドプロンプトを閉じて
     echo      もう一度 setup_windows を実行してください
-    echo.
-    pause
-    exit /b 1
+    goto :END
 )
 aws --version
 echo   OK
@@ -110,5 +103,7 @@ echo   AWS CLI:     OK
 echo   AWSプロファイル: OK
 echo.
 echo 起動方法: start_poller.bat をダブルクリック
+
+:END
 echo.
 pause
