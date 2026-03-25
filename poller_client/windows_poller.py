@@ -22,7 +22,7 @@ from datetime import datetime
 # ===== 設定 =====
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
-POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "0.5"))
+POLL_INTERVAL = max(0.1, min(10.0, float(os.environ.get("POLL_INTERVAL", "0.5"))))
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
