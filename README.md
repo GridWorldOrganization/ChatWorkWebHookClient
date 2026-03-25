@@ -1,25 +1,32 @@
 # ChatWork Webhook Client
 
 ChatWork のメッセージを SQS 経由で受信し、Claude Code を使って AI が自動返信するシステムです。
+Windows PC 上で動作します。
+
+> **注意: ポーラーは必ず1台のPCでのみ起動してください。** 2台同時に動くと同じメッセージを二重処理します。
 
 ## 構成
 
 ```
 ChatWorkWebHookClient/
-├── windows_poller.py       # SQSポーリング + Claude Code 実行 + Chatwork返信
-├── start_poller.bat        # 起動スクリプト（ダブルクリックで起動）
-├── setup_windows.bat       # 初回セットアップスクリプト
-├── config.env.example      # 環境変数テンプレート
+├── windows_poller.py          # メイン: SQSポーリング + Claude Code 実行 + Chatwork返信
+├── start_poller.bat           # 起動スクリプト（ダブルクリックで起動）
+├── setup_windows.bat          # 初回セットアップ（AWS CLI設定等）
+├── config.env                 # 環境変数（※自分で作成。Gitに含まれない）
+├── config.env.example         # ↑のテンプレート
 ├── clients/
-│   ├── 00_common_rules.md  # 全メンバー共通ルール
-│   ├── 01_yokota/          # メンバー個別フォルダ（.gitignore対象）
+│   ├── 00_common_rules.md     # 全メンバー共通ルール（Gitに含まれる）
+│   ├── templates/             # ペルソナ設定テンプレート（Gitに含まれる）
+│   │   ├── 01_persona.md.example
+│   │   └── setup_member.bat
+│   ├── 01_yokota/             # 横田百恵の設定（※Gitに含まれない）
 │   │   └── 01_persona.md
-│   └── 02_fujino/          # メンバー個別フォルダ（.gitignore対象）
+│   └── 02_fujino/             # 藤野楓の設定（※Gitに含まれない）
 │       └── 01_persona.md
 └── .gitignore
 ```
 
-## セットアップ（新しいPCで使う場合）
+## セットアップ手順
 
 ### 1. リポジトリを取得
 
@@ -28,114 +35,146 @@ git clone https://github.com/GridWorldOrganization/ChatWorkWebHookClient
 cd ChatWorkWebHookClient
 ```
 
-### 2. setup_windows.bat を編集
+### 2. config.env を作成
 
-`setup_windows.bat` を開き、AWSキーを実際の値に書き換えます。
-
-```bat
-aws configure set aws_access_key_id YOUR_AWS_ACCESS_KEY_ID ...
-aws configure set aws_secret_access_key YOUR_AWS_SECRET_ACCESS_KEY ...
-```
-
-### 3. config.env を作成
-
-`config.env.example` をコピーして `config.env` を作成し、実際の値を設定します。
+`config.env.example` をコピーして `config.env` を作成し、**実際の値** を設定します。
 
 ```
+copy config.env.example config.env
+```
+
+`config.env` をテキストエディタで開き、以下を設定：
+
+```env
+# 必須: 接続情報
+SQS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/XXXX/chatwork-webhook-queue
+CW_TOKEN_GURIKO=（実際のトークン）
+CW_TOKEN_YOKOTA=（実際のトークン）
+CW_TOKEN_FUJINO=（実際のトークン）
+CW_ERROR_ROOM_ID=428354226
+
+# オプション: 動作パラメータ（デフォルト値でOKなら省略可）
+CLAUDE_TIMEOUT=60
 FOLLOWUP_WAIT_SECONDS=30
+MAX_AI_CONVERSATION_TURNS=10
+REPLY_COOLDOWN_SECONDS=15
 ```
 
-### 4. setup_windows.bat を実行
+> **config.env にはAPIトークン等の機密情報が入ります。絶対にGitにコミットしないでください。**（.gitignore で除外済み）
 
-ダブルクリックで実行します。以下が自動でセットアップされます。
+### 3. AWS CLI セットアップ
 
-- boto3 インストール
-- AWS プロファイル `chatwork-webhook` の設定
-- 環境変数の設定
+`setup_windows.bat` を編集し、AWSアクセスキーを実際の値に書き換えてからダブルクリックで実行します。
 
-### 5. メンバーフォルダを作成
+### 4. メンバーフォルダを作成
 
-`clients/` 直下に各メンバーのフォルダを作成し、ペルソナファイルを配置します。
+#### 方法A: setup_member.bat を使う
 
 ```
-clients/
-├── 01_yokota/
-│   └── 01_persona.md   ← 横田百恵のキャラクター設定
-└── 02_fujino/
-    └── 01_persona.md   ← 藤野楓のキャラクター設定
+cd clients\templates
+setup_member.bat
 ```
 
-> `clients/01_*/` と `clients/02_*/` は `.gitignore` 対象です。
-> トークンや個人情報が含まれるため、Git には含まれません。
+メンバーフォルダ名（例: `01_yokota`）を入力するとフォルダが作成され、テンプレートがコピーされます。
+
+#### 方法B: 手動作成
+
+```
+mkdir clients\01_yokota
+copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
+```
+
+### 5. ペルソナを設定
+
+`clients\01_yokota\01_persona.md` をテキストエディタで開き、キャラクター設定を記入します。
+
+設定項目: 性格・話し方・趣味・最近の出来事・口癖・苦手なもの等。
+詳細は `clients/templates/01_persona.md.example` を参照。
+
+> メンバーフォルダ（`01_yokota/` 等）は `.gitignore` 対象です。ペルソナにはトークンや個人的な設定が含まれるためGitには含まれません。
 
 ### 6. 起動
 
 `start_poller.bat` をダブルクリックします。
 
+起動時に以下がログに表示されれば正常です：
+```
+=== Chatwork Webhook Poller 起動 ===
+=== config.env パラメータ ===
+  CLAUDE_TIMEOUT=60秒
+  FOLLOWUP_WAIT_SECONDS=30秒
+  MAX_AI_CONVERSATION_TURNS=10ターン
+  REPLY_COOLDOWN_SECONDS=15秒
+  横田 百恵 (01_yokota): 指示ファイル 1件, cwd=...\clients\01_yokota
+  藤野 楓 (02_fujino): 指示ファイル 1件, cwd=...\clients\02_fujino
+```
+
 ## 動作の仕組み
 
-1. SQS キューから Chatwork Webhook イベントを受信
-2. 宛先メンバー（`[To:ACCOUNT_ID]` または `[rp aid=ACCOUNT_ID` のメンション）を特定
-3. `sender_account_id` が空の場合、Chatwork API からメッセージ情報を取得して補完
-4. `clients/00_common_rules.md` + メンバー個別の `.md` をプロンプトに組み込む
-5. Claude Code を実行して返信文を生成
-6. Chatwork API 経由でルームに返信（`[rp]` タグ自動付与）
-7. 返信に「確認します」等のキーワードが含まれる場合、フォローアップ処理を実行
-   - `FOLLOWUP_WAIT_SECONDS` 秒待機
-   - ルーム情報（メンバー一覧・直近メッセージ）を収集
-   - 収集した情報を元に再度 Claude Code を実行してフォローアップ返信
-   - 完了後「おやすみなさい」を発言
+### 基本フロー
+
+1. SQS キューを**空になるまで全件読み込み**
+2. 宛先メンバーごとにメッセージをグループ化
+3. メンバーごとに**並列**で以下を実行：
+   - 複数メッセージが溜まっていた場合、先行分を文脈として含め、最後の1件に対して返信
+   - `clients/00_common_rules.md` + メンバー個別の `.md` をプロンプトに組み込む
+   - Claude Code（`claude -p`）を実行して返信文を生成
+4. Chatwork API 経由でルームに返信（`[rp]` タグ自動付与）
+
+### 特殊処理
+
+| 機能 | 動作 |
+|------|------|
+| **[rp]タグ自動付与** | AI出力に`[To:]`や`[rp]`がなければ、コード側で送信者への`[rp]`を自動付与 |
+| **[To:]自発発言** | AIが送信者以外に話しかける場合、`[To:アカウントID]名前さん` を出力可能 |
+| **フォローアップ** | 「確認します」等のキーワード検出 → 待機 → 情報収集 → 再返信 → 「おやすみなさい」 |
+| **AI会話チェーン** | 人間の発言で開始、AI同士は `MAX_AI_CONVERSATION_TURNS` で自動停止 |
+| **連投防止** | 同一メンバーは前回発言から `REPLY_COOLDOWN_SECONDS` 秒待機 |
+| **sender補完** | SQSのsender_account_idが空の場合、Chatwork APIから自動取得 |
 
 ## 設定パラメータ（config.env）
 
+### 必須
+
+| パラメータ | 説明 |
+|-----------|------|
+| `SQS_QUEUE_URL` | SQSキューのURL |
+| `CW_TOKEN_GURIKO` | グリ姉のChatwork APIトークン（エラー報告用） |
+| `CW_TOKEN_YOKOTA` | 横田百恵のChatwork APIトークン |
+| `CW_TOKEN_FUJINO` | 藤野楓のChatwork APIトークン |
+| `CW_ERROR_ROOM_ID` | エラー報告先のChatworkルームID |
+
+### オプション
+
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
-| `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ返信までの待機秒数 |
+| `CLAUDE_TIMEOUT` | 60 | Claude Code 実行タイムアウト（秒） |
+| `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ返信までの待機（秒） |
+| `MAX_AI_CONVERSATION_TURNS` | 10 | AI同士の会話上限メッセージ数 |
+| `REPLY_COOLDOWN_SECONDS` | 15 | 同一メンバーの連投防止クールダウン（秒） |
+
+## メンバーの追加方法
+
+1. `clients/templates/setup_member.bat` でフォルダ作成
+2. `01_persona.md` にキャラクター設定を記入
+3. `windows_poller.py` の `MEMBERS` に新メンバーを追加
+4. `config.env` に `CW_TOKEN_新メンバー=...` を追加
+5. ポーラー再起動
 
 ## 前提条件
 
+- Windows 10/11
 - Python 3.x
-- AWS CLI v2
+- AWS CLI v2（`chatwork-webhook` プロファイルが設定済み）
 - Claude Code（`claude` コマンドが使えること）
-- AWS SQS キューおよび Chatwork Webhook の設定が完了していること
+- AWS SQS キューおよび Chatwork Webhook（Lambda）の設定が完了していること
 
-## 変更履歴
+## トラブルシューティング
 
-### v0.6.0 (2026-03-25)
-- **feat**: フォローアップ自動返信機能
-  - 「確認します」「調べます」等のキーワードを検出し、待機後に情報収集→再返信
-  - 待機秒数を `FOLLOWUP_WAIT_SECONDS` で設定可能
-  - フォローアップ完了後「おやすみなさい」を発言
-  - 発生経緯: 藤野が「少し確認します！」と返信したが、claude -p はワンショット実行のため後続のフォローアップができなかった
-
-### v0.5.0 (2026-03-25)
-- **fix**: `00_common_rules.md` から `[rp]` タグ組み立て指示を削除
-  - コード側で `[rp]` タグを自動付与するため、AI に組み立てさせる指示を除去
-  - 発生経緯: AI が `[rp]` タグを出力 + コード側でも付与 → 名前が二重に表示された
-
-### v0.4.0 (2026-03-25)
-- **fix**: `find_target_member` で `[rp aid=ACCOUNT_ID` パターンも検出
-  - `[To:]` のみチェックしていたため、`[rp]` でメンションされたメンバーが特定できずデフォルトの横田にフォールバックしていた
-  - 発生経緯: 飛峪が藤野に `[rp]` で話しかけると、横田が代わりに返答していた
-
-### v0.3.0 (2026-03-25)
-- **feat**: Chatwork API で sender 情報を補完（`get_message_info` 関数）
-  - SQS メッセージの `sender_account_id` が空の場合、Chatwork API からメッセージ情報を取得
-  - 発生経緯: Lambda 側の問題で `sender_account_id` が空文字で渡されていた
-- **fix**: 共通ルール読み込みを `00_*.md` に限定
-  - `SCRIPT_DIR` 直下の `*.md` を全て読んでいたため、`log.md` 等が指示ファイルとして誤読み込みされていた
-
-### v0.2.0 (2026-03-25)
-- **feat**: 共通ルール + `[rp]` タグ自動付与
-  - `clients/00_common_rules.md` で全メンバー共通ルールを管理
-  - コード側で `[rp]` タグを自動構築し、AI には返信本文のみ出力させる
-  - `sender_name` と `message_id` をプロンプトに追加
-  - 発生経緯: 横田の返信で `[rp]` タグが壊れていた（aid 空、名前抜け、メッセージID間違い）
-
-### v0.1.0 (2026-03-25)
-- **feat**: 初版リリース
-  - SQS キューからメッセージを直列処理
-  - Claude Code バッチ実行（`claude -p`）
-  - 複数メンバー対応（横田百恵・藤野楓）
-  - `config.env` による AWS クレデンシャル管理
-  - エラー時はグリ姉アカウントで報告ルームに通知
+| 症状 | 原因・対処 |
+|------|-----------|
+| 起動時「必須環境変数が未設定」 | `config.env` が存在しないか、トークンが空 |
+| 返信が来ない | ログで `Claude Code タイムアウト` を確認。`CLAUDE_TIMEOUT` を増やす |
+| 二重返信が出る | 2台でポーラーが動いていないか確認。1台のみにする |
+| AI同士が止まらない | `MAX_AI_CONVERSATION_TURNS` を下げる |
+| 連続で同じ質問をぶつける | `REPLY_COOLDOWN_SECONDS` を上げる |
