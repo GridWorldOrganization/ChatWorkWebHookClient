@@ -15,6 +15,7 @@ import requests
 import os
 import glob
 import re
+import signal
 import threading
 from datetime import datetime
 
@@ -154,6 +155,9 @@ ALL_MEMBER_IDS = {str(m["account_id"]) for m in MEMBERS.values()}
 # key: room_id, value: {"count": int, "last_human_time": float}
 _conversation_chains = {}
 _chain_lock = threading.Lock()
+
+# シャットダウンフラグ
+_shutdown_requested = False
 
 # メンバーごとの最終発言時刻（連投防止）
 # key: member_key, value: timestamp
@@ -830,7 +834,7 @@ def main():
         for f in sorted(md_files):
             log.info(f"    - {os.path.basename(f)}")
 
-    while True:
+    while not _shutdown_requested:
         try:
             # ===== フェーズ1: キューを空になるまで全件読み込み =====
             all_messages = []
@@ -904,5 +908,15 @@ def main():
 
         time.sleep(POLL_INTERVAL)
 
+    log.info("=== Chatwork Webhook Poller 停止 ===")
+
+def _signal_handler(sig, frame):
+    """Ctrl+C / SIGTERM でgraceful shutdownを開始"""
+    global _shutdown_requested
+    _shutdown_requested = True
+    log.info("シャットダウン要求を受信しました。現在の処理完了後に終了します...")
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
     main()
