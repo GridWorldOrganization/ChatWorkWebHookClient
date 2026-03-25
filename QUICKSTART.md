@@ -47,7 +47,7 @@ setup_member.bat
 NAME=山田 太郎
 ACCOUNT_ID=12345678
 CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-ALLOWED_ROOMS=YOUR_ROOM_ID
+ALLOWED_ROOMS=YOUR_ROOM_ID(xxxxxxxxx)
 ```
 
 - `ALLOWED_ROOMS` が空だとそのメンバーは全送信不可になります
@@ -81,7 +81,7 @@ setup_member.bat
 NAME=田中 一郎
 ACCOUNT_ID=99999999
 CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-ALLOWED_ROOMS=YOUR_ROOM_ID,YOUR_ROOM_ID2
+ALLOWED_ROOMS=YOUR_ROOM_ID(xxxxxxxxx),YOUR_ROOM_ID(xxxxxxxxx)2(xxxxxxxxx)
 ```
 
 ### 3. 01_persona.md
