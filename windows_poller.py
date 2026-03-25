@@ -306,7 +306,23 @@ def process_message(body: dict):
     # ルームIDホワイトリスト判定
     allowed = member.get("allowed_rooms", set())
     if allowed and str(room_id) not in allowed:
-        log.info(f"ルーム {room_id} は {member['name']} の許可リストにないためスキップ")
+        log.warning(
+            f"[許可されていないルーム] "
+            f"メンバー={member['name']}, "
+            f"ルームID={room_id}, "
+            f"送信者={sender_name}(ID:{sender}), "
+            f"メッセージID={message_id}, "
+            f"本文={message[:200]}, "
+            f"許可ルーム={allowed}"
+        )
+        # 拒否ログをメンバーフォルダに記録
+        try:
+            reject_log = os.path.join(member_dir, "rejected_rooms.log")
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(reject_log, "a", encoding="utf-8") as f:
+                f.write(f"[{now}] room={room_id} sender={sender_name}(ID:{sender}) msg={message[:200]}\n")
+        except Exception as e:
+            log.error(f"拒否ログ書き込みエラー: {e}")
         return
 
     # 会話チェーン管理（AI同士の会話回数制御）
