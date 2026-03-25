@@ -16,7 +16,6 @@ import os
 import glob
 import re
 import threading
-import tempfile
 from datetime import datetime
 
 # ===== 設定 =====
@@ -251,36 +250,25 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
         log.error(f"会話記録保存エラー: {e}")
 
 def run_claude(prompt, cwd, member_name, conversation_id=None):
-    """Claude Codeを一時ファイル経由で実行（Windowsコマンドライン長制限回避）"""
-    tmp_file = None
+    """Claude Codeをstdin経由で実行（Windowsコマンドライン長制限回避）"""
+    cmd = [CLAUDE_COMMAND, "-p", "--conversation"]
+    if conversation_id:
+        cmd.extend(["--resume", conversation_id])
+
+    log.info(f">>> Claude Code 実行開始 [{member_name}] cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
+             f"{f' conversation={conversation_id}' if conversation_id else ' (新規会話)'}")
+
     try:
-        # プロンプトを一時ファイルに書き出し
-        tmp_file = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", encoding="utf-8",
-            dir=cwd, delete=False
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            timeout=CLAUDE_TIMEOUT
         )
-        tmp_file.write(prompt)
-        tmp_file.close()
-
-        # stdinからプロンプトを読み込む方式
-        cmd = [CLAUDE_COMMAND, "-p", "-", "--conversation"]
-        if conversation_id:
-            cmd.extend(["--resume", conversation_id])
-
-        log.info(f">>> Claude Code 実行開始 [{member_name}] cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
-                 f"{f' conversation={conversation_id}' if conversation_id else ' (新規会話)'}")
-
-        with open(tmp_file.name, "r", encoding="utf-8") as f:
-            result = subprocess.run(
-                cmd,
-                stdin=f,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=cwd,
-                timeout=CLAUDE_TIMEOUT
-            )
 
         log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={result.returncode})")
 
@@ -298,13 +286,6 @@ def run_claude(prompt, cwd, member_name, conversation_id=None):
     except subprocess.TimeoutExpired:
         log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
         raise
-    finally:
-        # 一時ファイル削除
-        if tmp_file and os.path.exists(tmp_file.name):
-            try:
-                os.unlink(tmp_file.name)
-            except Exception:
-                pass
 
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
@@ -610,6 +591,8 @@ def main():
         missing.append("SQS_QUEUE_URL")
     if not CW_TOKEN_GURIKO:
         missing.append("CW_TOKEN_GURIKO")
+    if CW_ERROR_ROOM_ID == 0:
+        missing.append("CW_ERROR_ROOM_ID")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
             missing.append(f"CW_TOKEN ({key})")
@@ -679,7 +662,6 @@ def main():
 
             # ===== フェーズ2: メンバーごとにメッセージをグループ化 =====
             member_messages = {}  # key: member_key, value: list of (body_data, sqs_msg)
-            orphan_messages = []  # 宛先不明
 
             for msg in all_messages:
                 try:
@@ -713,9 +695,12 @@ def main():
                 threads.append(t)
                 log.info(f"バッチスレッド起動: {member_key} ({len(msg_list)}件)")
 
-            # 全スレッド完了待ち
+            # 全スレッド完了待ち（タイムアウト: CLAUDE_TIMEOUT + フォローアップ待機 + 余裕60秒）
+            thread_timeout = CLAUDE_TIMEOUT + FOLLOWUP_WAIT_SECONDS + 60
             for t in threads:
-                t.join()
+                t.join(timeout=thread_timeout)
+                if t.is_alive():
+                    log.error(f"スレッドがタイムアウト({thread_timeout}秒)しました。次のポーリングに進みます。")
 
         except Exception as e:
             log.error(f"ポーリングエラー: {e}")
