@@ -667,10 +667,6 @@ def process_message(body: dict):
                     "room_id": str(room_id), "model": CLAUDE_MODEL
                 }
         result = run_claude(prompt, member_dir, member["name"])
-        # セッション状態: idle
-        if member_key:
-            with _session_lock:
-                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -752,22 +748,21 @@ def process_message(body: dict):
             )
 
     except subprocess.TimeoutExpired:
-        if member_key:
-            with _session_lock:
-                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
         notify_error(
             f"Claude Code タイムアウト [{member['name']}]",
             f"Claude Code が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}"
         )
     except FileNotFoundError:
-        if member_key:
-            with _session_lock:
-                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
         notify_error(
             "Claude Code 未検出",
             f"claude コマンドが見つかりません。\nPATH設定を確認してください。"
         )
+    finally:
+        # どんな例外でもセッション状態を確実にidle に戻す
+        if member_key:
+            with _session_lock:
+                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
 
 def get_queue_count(sqs):
     """キュー内の待機メッセージ数を取得"""
@@ -790,8 +785,28 @@ def process_member_batch(member_key, msg_list, sqs):
     if lock:
         lock.acquire()
     try:
-        # 最後のメッセージだけをprocess_messageに渡す（それ以前は文脈として含める）
-        if len(msg_list) == 1:
+        # 自分自身のメッセージをバッチから除外（無限ループ防止）
+        my_aid = str(member["account_id"])
+        filtered = []
+        for body_data, msg in msg_list:
+            # sender_account_idが空の場合はAPIで補完して判定
+            s = body_data.get("sender_account_id", "")
+            if not s:
+                room_id = body_data.get("room_id", "")
+                msg_id = body_data.get("message_id", "")
+                if msg_id:
+                    info = get_message_info(member["cw_token"], room_id, msg_id)
+                    if info:
+                        s = info.get("account_id", "")
+            if str(s) == my_aid:
+                log.info(f"[{member['name']}] バッチ: 自分自身のメッセージをスキップ")
+                continue
+            filtered.append((body_data, msg))
+        msg_list = filtered
+
+        if not msg_list:
+            log.info(f"[{member['name']}] バッチ: 処理対象メッセージなし")
+        elif len(msg_list) == 1:
             # 1件だけなら従来通り
             process_message(msg_list[0][0])
         else:
@@ -800,7 +815,6 @@ def process_member_batch(member_key, msg_list, sqs):
             for i, (body_data, _) in enumerate(msg_list[:-1]):
                 sender_name = body_data.get("sender_name", "")
                 body_text = body_data.get("body", "")
-                # sender_name が空の場合はAPIから取得を試みる
                 if not sender_name:
                     room_id = body_data.get("room_id", "")
                     msg_id = body_data.get("message_id", "")
@@ -812,8 +826,7 @@ def process_member_batch(member_key, msg_list, sqs):
                     sender_name = "不明"
                 context_lines.append(f"[{sender_name}] {body_text}")
 
-            last_body = msg_list[-1][0]
-            # 文脈情報を last_body に追加
+            last_body = dict(msg_list[-1][0])  # コピーして元のdictを汚染しない
             last_body["_prior_context"] = "\n".join(context_lines)
             log.info(f"[{member['name']}] バッチ処理: {len(msg_list)}件まとめ（{len(msg_list)-1}件を文脈、1件を処理対象）")
             process_message(last_body)
