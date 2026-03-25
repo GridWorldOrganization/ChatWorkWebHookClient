@@ -152,8 +152,6 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
 | `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ返信までの待機（秒） |
 | `MAX_AI_CONVERSATION_TURNS` | 10 | AI同士の会話上限メッセージ数 |
 | `REPLY_COOLDOWN_SECONDS` | 15 | 同一メンバーの連投防止クールダウン（秒） |
-| `DEFAULT_MODE_YOKOTA` | 1 | 横田のデフォルト会話モード |
-| `DEFAULT_MODE_FUJINO` | 1 | 藤野のデフォルト会話モード |
 | `ROOM_MODES_YOKOTA` | (空) | 横田のルーム別モード |
 | `ROOM_MODES_FUJINO` | (空) | 藤野のルーム別モード |
 | `MAINTENANCE_ROOM_ID` | (空) | /status コマンドを受け付けるルームID |
@@ -171,13 +169,16 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
 
 ### 設定方法（config.env）
 
-**メンバーのデフォルトモード:**
-```env
-DEFAULT_MODE_YOKOTA=2    # 横田は普段ペルソナモード
-DEFAULT_MODE_FUJINO=1    # 藤野は普段業務モード
+**メンバーのデフォルトモード（メンバーフォルダ内の `mode.txt`）:**
+
+```
+clients/01_yokota/mode.txt  ← 中身: 2（ペルソナモード）
+clients/02_fujino/mode.txt  ← 中身: 1（業務モード）
 ```
 
-**ルーム別にモードを上書き:**
+`mode.txt` がなければデフォルト1（業務）。数字1文字だけ書く。
+
+**ルーム別にモードを上書き（config.env）:**
 ```env
 # 形式: ルームID:モード,ルームID:モード
 ROOM_MODES_YOKOTA=426936385:2,427388771:1
@@ -188,7 +189,7 @@ ROOM_MODES_FUJINO=426936385:2,427388771:0
 - 横田: ルーム426936385ではペルソナ、427388771では業務、その他はデフォルト
 - 藤野: ルーム426936385ではペルソナ、427388771ではメンテナンス、その他はデフォルト
 
-**優先順位:** ルーム別指定 > メンバーデフォルト > システムデフォルト(1)
+**優先順位:** ルーム別指定(config.env) > mode.txt(メンバーフォルダ) > 1(業務)
 
 ## メンバーの追加方法
 
