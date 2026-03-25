@@ -250,8 +250,12 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
         log.error(f"会話記録保存エラー: {e}")
 
 def run_claude(prompt, cwd, member_name, conversation_id=None):
-    """Claude Codeを実行。プロンプトが長い場合は一時ファイル経由。"""
-    import tempfile
+    """Claude Codeを実行。Windows CreateProcess制限(32,767文字)に対するガード付き。"""
+    # Windows CreateProcess のコマンドライン長制限チェック
+    MAX_CMD_LEN = 30000
+    if len(prompt) > MAX_CMD_LEN:
+        log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_CMD_LEN}文字")
+        prompt = prompt[:MAX_CMD_LEN] + "\n\n（以降省略）"
 
     cmd = [CLAUDE_COMMAND, "-p", prompt, "--conversation"]
     if conversation_id:
@@ -261,25 +265,7 @@ def run_claude(prompt, cwd, member_name, conversation_id=None):
              f" prompt_len={len(prompt)}"
              f"{f' conversation={conversation_id}' if conversation_id else ' (新規会話)'}")
 
-    # Windowsの CreateProcess コマンドライン長制限は約32,000文字
-    # それを超える場合は一時ファイル経由にフォールバック
-    total_cmd_len = sum(len(arg) for arg in cmd) + len(cmd)  # スペース分
-    use_tmpfile = total_cmd_len > 30000
-
-    tmp_path = None
     try:
-        if use_tmpfile:
-            log.info(f"プロンプトが長いため一時ファイル経由: {total_cmd_len}文字")
-            fd, tmp_path = tempfile.mkstemp(suffix=".txt", dir=cwd)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(prompt)
-            # 一時ファイルからcatしてパイプする方式ではなく、ファイルの中身を読み直して渡す
-            with open(tmp_path, "r", encoding="utf-8") as f:
-                file_prompt = f.read()
-            cmd = [CLAUDE_COMMAND, "-p", file_prompt, "--conversation"]
-            if conversation_id:
-                cmd.extend(["--resume", conversation_id])
-
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -306,12 +292,6 @@ def run_claude(prompt, cwd, member_name, conversation_id=None):
     except subprocess.TimeoutExpired:
         log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
         raise
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
 
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
