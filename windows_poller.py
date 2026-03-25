@@ -22,7 +22,7 @@ from datetime import datetime
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
 POLL_INTERVAL = 5  # 秒
-CLAUDE_COMMAND = "claude"
+CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
 REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
@@ -628,6 +628,7 @@ def main():
     log.info(f"ポーリング間隔: {POLL_INTERVAL}秒")
     log.info("モード: バッチ+並列処理（キュー全件読み込み→メンバーごとにまとめて処理）")
     log.info(f"=== config.env パラメータ ===")
+    log.info(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
     log.info(f"  CLAUDE_TIMEOUT={CLAUDE_TIMEOUT}秒")
     log.info(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
     log.info(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}ターン")
