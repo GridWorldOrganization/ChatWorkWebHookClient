@@ -159,6 +159,11 @@ _chain_lock = threading.Lock()
 # シャットダウンフラグ
 _shutdown_requested = False
 
+# メンバーごとのセッション状態
+# key: member_key, value: {"status": "idle"|"running", "started": timestamp, "room_id": str, "model": str}
+_session_states = {key: {"status": "idle", "started": None, "room_id": "", "model": ""} for key in MEMBERS}
+_session_lock = threading.Lock()
+
 # メンバーごとの最終発言時刻（連投防止）
 # key: member_key, value: timestamp
 _last_reply_time = {}
@@ -453,6 +458,27 @@ def handle_status_command(member, room_id):
     lines.append("[/info]")
     return "\n".join(lines)
 
+def handle_session_command(room_id):
+    """メンテナンスコマンド /session: 全メンバーのClaude実行状態を報告"""
+    lines = []
+    lines.append(f"[info][title]/session[/title]")
+    with _session_lock:
+        for key, member in MEMBERS.items():
+            state = _session_states.get(key, {"status": "idle"})
+            status = state["status"]
+            if status == "running":
+                elapsed = time.time() - state["started"] if state["started"] else 0
+                lines.append(
+                    f"  {member['name']}: 実行中 "
+                    f"({elapsed:.0f}秒経過/{CLAUDE_TIMEOUT}秒) "
+                    f"model={state['model']} room={state['room_id']}"
+                )
+            else:
+                lines.append(f"  {member['name']}: 停止中")
+    lines.append(f"\n  グローバル設定: model={CLAUDE_MODEL} timeout={CLAUDE_TIMEOUT}秒")
+    lines.append("[/info]")
+    return "\n".join(lines)
+
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
     message = body.get("body", "")
@@ -512,11 +538,17 @@ def process_message(body: dict):
     # メンテナンスコマンド判定: メッセージ本文から [To:xxx]名前さん\n を全て除去して比較
     raw_command = message.strip()
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', raw_command).strip()
-    if raw_command == "/status" and MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
-        log.info(f"/status コマンド検出: {member['name']}")
-        status_msg = handle_status_command(member, room_id)
-        chatwork_post(member["cw_token"], room_id, status_msg)
-        return
+    if MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
+        if raw_command == "/status":
+            log.info(f"/status コマンド検出: {member['name']}")
+            status_msg = handle_status_command(member, room_id)
+            chatwork_post(member["cw_token"], room_id, status_msg)
+            return
+        if raw_command == "/session":
+            log.info(f"/session コマンド検出")
+            session_msg = handle_session_command(room_id)
+            chatwork_post(member["cw_token"], room_id, session_msg)
+            return
 
     # ルームIDホワイトリスト判定
     allowed = member.get("allowed_rooms", set())
@@ -627,7 +659,18 @@ def process_message(body: dict):
     )
 
     try:
+        # セッション状態: running
+        if member_key:
+            with _session_lock:
+                _session_states[member_key] = {
+                    "status": "running", "started": time.time(),
+                    "room_id": str(room_id), "model": CLAUDE_MODEL
+                }
         result = run_claude(prompt, member_dir, member["name"])
+        # セッション状態: idle
+        if member_key:
+            with _session_lock:
+                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -709,11 +752,17 @@ def process_message(body: dict):
             )
 
     except subprocess.TimeoutExpired:
+        if member_key:
+            with _session_lock:
+                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
         notify_error(
             f"Claude Code タイムアウト [{member['name']}]",
             f"Claude Code が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}"
         )
     except FileNotFoundError:
+        if member_key:
+            with _session_lock:
+                _session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
         notify_error(
             "Claude Code 未検出",
