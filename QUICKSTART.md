@@ -17,13 +17,13 @@ cd ChatWorkWebHookClient
 copy config.env.example config.env
 ```
 
-以下を実際の値に書き換え：
+以下を実際の値に書き換え（**全て必須。未設定だと起動失敗します**）：
 
 ```env
 AWS_PROFILE=chatwork-webhook
 SQS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/XXXX/chatwork-webhook-queue
-CHATWORK_API_TOKEN_ERROR_REPORTER=（エラー報告アカウントのトークン）
-CHATWORK_ERROR_ROOM_ID=（エラー報告ルームID）
+CHATWORK_API_TOKEN_ERROR_REPORTER=（エラー報告アカウントのChatWork APIトークン）
+CHATWORK_ERROR_ROOM_ID=（エラー報告先のChatWorkルームID）
 ```
 
 ### 3. セットアップ実行
@@ -39,7 +39,7 @@ setup_member.bat
 
 フォルダ名を入力（例: `01_yamada`）。
 
-### 5. member.env を作成
+### 5. member.env を作成（**全項目必須。未設定だと起動失敗**）
 
 `members\01_yamada\member.env` を作成：
 
@@ -49,6 +49,8 @@ ACCOUNT_ID=12345678
 CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ALLOWED_ROOMS=426936385
 ```
+
+- `ALLOWED_ROOMS` が空だとそのメンバーは全送信不可になります
 
 ### 6. ペルソナを書く
 

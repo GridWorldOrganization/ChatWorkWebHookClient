@@ -989,19 +989,23 @@ def main():
         log.error("メンバーが1人も見つかりません。members/ 配下にメンバーフォルダと member.env を作成してください")
         return
 
-    # 必須環境変数チェック
+    # 必須設定チェック
     missing = []
     if not QUEUE_URL:
-        missing.append("SQS_QUEUE_URL")
+        missing.append("SQS_QUEUE_URL (config.env)")
     if not CHATWORK_API_TOKEN_ERROR_REPORTER:
-        missing.append("CHATWORK_API_TOKEN_ERROR_REPORTER")
+        missing.append("CHATWORK_API_TOKEN_ERROR_REPORTER (config.env)")
     if CHATWORK_ERROR_ROOM_ID == 0:
-        missing.append("CHATWORK_ERROR_ROOM_ID")
+        missing.append("CHATWORK_ERROR_ROOM_ID (config.env)")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
-            missing.append(f"CHATWORK_API_TOKEN in {key}/member.env")
+            missing.append(f"CHATWORK_API_TOKEN ({key}/member.env)")
+        if not member.get("allowed_rooms"):
+            log.warning(f"[{member['name']}] ALLOWED_ROOMS が空のため全送信不可です ({key}/member.env)")
     if missing:
-        log.error(f"必須設定が未設定: {', '.join(missing)}")
+        log.error("=== 起動失敗: 必須設定が未設定 ===")
+        for m in missing:
+            log.error(f"  - {m}")
         log.error("config.env および各メンバーの member.env を確認してください")
         return
 

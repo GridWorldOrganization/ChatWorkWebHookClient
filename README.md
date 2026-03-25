@@ -198,21 +198,41 @@ ALLOWED_ROOMS=426936385,427388771
 
 ## グローバル設定（config.env）
 
+### 必須（未設定だと起動失敗）
+
+| パラメータ | 説明 |
+|-----------|------|
+| `SQS_QUEUE_URL` | SQSキューURL |
+| `CHATWORK_API_TOKEN_ERROR_REPORTER` | エラー報告アカウントのChatWork APIトークン |
+| `CHATWORK_ERROR_ROOM_ID` | エラー報告先のChatWorkルームID |
+
+### AWS認証（いずれか必須）
+
+| パラメータ | 説明 |
+|-----------|------|
+| `AWS_PROFILE` | AWSプロファイル名（`setup_windows.bat`で`chatwork-webhook`を作成） |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | プロファイル未設定時のフォールバック |
+
+### オプション
+
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
-| `SQS_QUEUE_URL` | (必須) | SQSキューURL |
-| `CHATWORK_API_TOKEN_ERROR_REPORTER` | (必須) | エラー報告アカウントのトークン |
-| `CHATWORK_ERROR_ROOM_ID` | (必須) | エラー報告先ルームID |
-| `AWS_PROFILE` | (なし) | AWSプロファイル名（`setup_windows.bat`で`chatwork-webhook`を作成） |
-| `AWS_ACCESS_KEY_ID` | (なし) | AWSアクセスキー（プロファイル未設定時のフォールバック） |
-| `AWS_SECRET_ACCESS_KEY` | (なし) | AWSシークレットキー（同上） |
 | `CLAUDE_MODEL` | claude-haiku-4-5 | モデル（`claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-6`） |
-| `CLAUDE_COMMAND` | claude | Claude Codeのパス（PATHで見つからない場合にフルパス指定） |
+| `CLAUDE_COMMAND` | claude | Claude Codeのパス |
 | `CLAUDE_TIMEOUT` | 60 | Claude Code実行タイムアウト（秒） |
 | `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ待機（秒） |
 | `MAX_AI_CONVERSATION_TURNS` | 10 | AI同士の会話上限メッセージ数 |
 | `REPLY_COOLDOWN_SECONDS` | 15 | 同一メンバーの連投防止（秒） |
 | `MAINTENANCE_ROOM_ID` | (空) | メンテナンスコマンド受付ルームID |
+
+### メンバー固有（member.env、未設定だと起動失敗）
+
+| パラメータ | 説明 |
+|-----------|------|
+| `NAME` | メンバーの表示名 |
+| `ACCOUNT_ID` | ChatWork アカウントID |
+| `CHATWORK_API_TOKEN` | ChatWork APIトークン |
+| `ALLOWED_ROOMS` | 許可ルームID（カンマ区切り。空=全送信不可） |
 
 ※ ポーリング間隔は5秒固定（変更不可）
 
