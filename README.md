@@ -40,7 +40,7 @@ ChatWork                    AWS                              Windows PC
 ### Webhook URL
 
 ```
-https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod
+https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod/webhook
 ```
 
 各メンバーのChatWorkアカウントで、このURLをWebhookとして登録する。
@@ -308,7 +308,7 @@ TALK_MODE=426936385:3
 3. 「Webhook新規作成」をクリック
 4. 以下を設定：
    - **Webhook名**: 任意（例: `AI自動返信`）
-   - **Webhook URL**: `https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod`
+   - **Webhook URL**: `https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod/webhook`
    - **イベント**: `メンションされた時（mention_to_me）` にチェック
 5. 保存
 
