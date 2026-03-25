@@ -26,6 +26,8 @@ POLL_INTERVAL = max(0.1, min(10.0, float(os.environ.get("POLL_INTERVAL", "0.5"))
 SQS_WAIT_TIME_SECONDS = max(0, min(20, int(os.environ.get("SQS_WAIT_TIME_SECONDS", "1"))))  # 0=ショート, 1-20=ロング
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
+USE_DIRECT_API = os.environ.get("USE_DIRECT_API", "1") == "1"
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
@@ -370,8 +372,40 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
     except Exception as e:
         log.error(f"会話記録保存エラー: {e}")
 
-def run_claude(prompt, cwd, member_name):
-    """Claude Codeを実行。プロセス追跡付き。"""
+def run_claude_direct_api(prompt, member_name):
+    """Anthropic API を直接呼び出し。subprocess.CompletedProcess 互換の結果を返す。"""
+    import anthropic
+
+    log.info(f">>> Anthropic API 実行開始 [{member_name}] model={CLAUDE_MODEL} timeout={CLAUDE_TIMEOUT}秒"
+             f" prompt_len={len(prompt)}")
+    start_time = time.time()
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=CLAUDE_TIMEOUT,
+        )
+        elapsed = time.time() - start_time
+        reply = response.content[0].text if response.content else ""
+        log.info(f"<<< Anthropic API 実行完了 [{member_name}] ({elapsed:.1f}秒)")
+        return subprocess.CompletedProcess(["anthropic-api"], 0, reply, "")
+
+    except anthropic.APITimeoutError:
+        elapsed = time.time() - start_time
+        log.error(f"<<< Anthropic API タイムアウト [{member_name}] ({elapsed:.1f}秒)")
+        raise subprocess.TimeoutExpired(cmd=["anthropic-api"], timeout=CLAUDE_TIMEOUT)
+
+    except anthropic.APIError as e:
+        elapsed = time.time() - start_time
+        log.error(f"<<< Anthropic API エラー [{member_name}] ({elapsed:.1f}秒): {e}")
+        return subprocess.CompletedProcess(["anthropic-api"], 1, "", str(e))
+
+
+def run_claude_cli(prompt, cwd, member_name):
+    """Claude Code CLI を実行。プロセス追跡付き。"""
     MAX_PROMPT_LEN = 31000 - len(CLAUDE_COMMAND) - len(CLAUDE_MODEL) - 50
     if len(prompt) > MAX_PROMPT_LEN:
         log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_PROMPT_LEN}文字")
@@ -423,6 +457,14 @@ def run_claude(prompt, cwd, member_name):
             if proc in _active_processes:
                 _active_processes.remove(proc)
         _remove_pid(proc.pid)
+
+
+def run_claude(prompt, cwd, member_name):
+    """USE_DIRECT_API に応じて API 直接 or CLI を切り替え"""
+    if USE_DIRECT_API:
+        return run_claude_direct_api(prompt, member_name)
+    else:
+        return run_claude_cli(prompt, cwd, member_name)
 
 def kill_all_claude_processes():
     """全ての実行中Claudeプロセスを強制終了"""
@@ -998,6 +1040,8 @@ def main():
         errors.append("CHATWORK_API_TOKEN_ERROR_REPORTER が未設定です → config.env にエラー報告用ChatWorkアカウントのAPIトークンを設定してください")
     if CHATWORK_ERROR_ROOM_ID == 0:
         errors.append("CHATWORK_ERROR_ROOM_ID が未設定です → config.env にエラー報告先のChatWorkルームIDを設定してください")
+    if USE_DIRECT_API and not ANTHROPIC_API_KEY:
+        errors.append("ANTHROPIC_API_KEY が未設定です → config.env に Anthropic API キーを設定してください（USE_DIRECT_API=1 の場合は必須）")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
             errors.append(f"{member['name']} の CHATWORK_API_TOKEN が未設定です → members/{key}/member.env にChatWork APIトークンを設定してください")
@@ -1031,6 +1075,8 @@ def main():
     log.info(f"ポーリングモード: {poll_mode}")
     log.info("モード: バッチ+並列処理（キュー全件読み込み→メンバーごとにまとめて処理）")
     log.info(f"=== config.env パラメータ ===")
+    api_mode = "Anthropic API 直接呼び出し" if USE_DIRECT_API else "Claude Code CLI"
+    log.info(f"  USE_DIRECT_API={api_mode}")
     log.info(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
     log.info(f"  CLAUDE_MODEL={CLAUDE_MODEL}")
     log.info(f"  CLAUDE_TIMEOUT={CLAUDE_TIMEOUT}秒")

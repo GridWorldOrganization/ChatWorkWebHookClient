@@ -35,8 +35,8 @@ echo   OK
 echo.
 
 REM ===== Step 2: pip パッケージインストール =====
-echo [2/5] boto3, requests インストール中...
-call pip install boto3 requests
+echo [2/5] boto3, requests, anthropic インストール中...
+call pip install boto3 requests anthropic
 echo   OK
 echo.
 
