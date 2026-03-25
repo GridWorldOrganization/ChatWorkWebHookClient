@@ -23,6 +23,7 @@ AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
 POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
@@ -340,9 +341,9 @@ def run_claude(prompt, cwd, member_name):
         log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_CMD_LEN}文字")
         prompt = prompt[:MAX_CMD_LEN] + "\n\n（以降省略）"
 
-    cmd = [CLAUDE_COMMAND, "-p", prompt]
+    cmd = [CLAUDE_COMMAND, "-p", prompt, "--model", CLAUDE_MODEL]
 
-    log.info(f">>> Claude Code 実行開始 [{member_name}] cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
+    log.info(f">>> Claude Code 実行開始 [{member_name}] model={CLAUDE_MODEL} cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
              f" prompt_len={len(prompt)}")
 
     try:
@@ -436,6 +437,7 @@ def handle_status_command(member, room_id):
 
     lines.append(f"\n■ 設定値")
     lines.append(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
+    lines.append(f"  CLAUDE_MODEL={CLAUDE_MODEL}")
     lines.append(f"  CLAUDE_TIMEOUT={CLAUDE_TIMEOUT}秒")
     lines.append(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
     lines.append(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}")
@@ -808,6 +810,7 @@ def main():
     log.info("モード: バッチ+並列処理（キュー全件読み込み→メンバーごとにまとめて処理）")
     log.info(f"=== config.env パラメータ ===")
     log.info(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
+    log.info(f"  CLAUDE_MODEL={CLAUDE_MODEL}")
     log.info(f"  CLAUDE_TIMEOUT={CLAUDE_TIMEOUT}秒")
     log.info(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
     log.info(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}ターン")
