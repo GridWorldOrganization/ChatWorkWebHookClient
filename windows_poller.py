@@ -1005,6 +1005,8 @@ def process_member_batch(member_key, msg_list, sqs):
     """メンバー宛の複数メッセージをまとめて処理する。排他ロック付き"""
     member = MEMBERS[member_key]
     lock = _member_locks.get(member_key)
+    # SQS 削除用に元のメッセージリストを保持（フィルタ後も全件削除するため）
+    all_sqs_messages = [msg for _, msg in msg_list]
     if lock:
         lock.acquire()
     try:
@@ -1058,7 +1060,8 @@ def process_member_batch(member_key, msg_list, sqs):
     finally:
         if lock:
             lock.release()
-        for _, msg in msg_list:
+        # フィルタで除外した自己メッセージも含め、全件を SQS から削除
+        for msg in all_sqs_messages:
             try:
                 sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
             except Exception as e:
