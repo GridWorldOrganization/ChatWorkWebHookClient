@@ -13,16 +13,14 @@ if not exist "config.env" (
 )
 
 REM config.env から環境変数を読み込む
-for /f "usebackq tokens=1,* delims==" %%a in ("config.env") do (
-    echo %%a | findstr /r "^#" >nul || (
-        if not "%%a"=="" set "%%a=%%b"
-    )
+for /f "usebackq eol=# tokens=1,* delims==" %%a in ("config.env") do (
+    if not "%%a"=="" if not "%%b"=="" set "%%a=%%b"
 )
 echo config.env loaded.
 echo.
 
 REM ===== Step 1: Python確認 =====
-echo [1/4] Python 確認中...
+echo [1/5] Python 確認中...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python がインストールされていません
@@ -40,13 +38,39 @@ echo   OK
 echo.
 
 REM ===== Step 2: pip パッケージインストール =====
-echo [2/4] boto3, requests インストール中...
+echo [2/5] boto3, requests インストール中...
 pip install boto3 requests
 echo   OK
 echo.
 
-REM ===== Step 3: AWS CLI 確認 + インストール案内 =====
-echo [3/4] AWS CLI 確認中...
+REM ===== Step 3: Claude Code 確認 =====
+echo [3/5] Claude Code 確認中...
+claude --version >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] claude コマンドが見つかりません
+    echo.
+    echo   Claude Code がPATHに通っていない可能性があります。
+    echo.
+    echo   確認方法:
+    echo     1. 新しいコマンドプロンプトを開いて claude --version を実行
+    echo     2. 動く場合、このコマンドプロンプトのPATHが古い可能性があります
+    echo        一度閉じて開き直してから再実行してください
+    echo.
+    echo   インストールされていない場合:
+    echo     npm install -g @anthropic-ai/claude-code
+    echo.
+    echo   npmがない場合は Node.js を先にインストール:
+    echo     https://nodejs.org/
+    echo.
+    pause
+    exit /b 1
+)
+claude --version
+echo   OK
+echo.
+
+REM ===== Step 4: AWS CLI 確認 + インストール案内 =====
+echo [4/5] AWS CLI 確認中...
 aws --version >nul 2>&1
 if errorlevel 1 (
     echo [WARN] AWS CLI がインストールされていません
@@ -68,8 +92,8 @@ aws --version
 echo   OK
 echo.
 
-REM ===== Step 4: AWS プロファイル設定 =====
-echo [4/4] AWS プロファイル「chatwork-webhook」を設定中...
+REM ===== Step 5: AWS プロファイル設定 =====
+echo [5/5] AWS プロファイル「chatwork-webhook」を設定中...
 aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
 aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
 aws configure set region ap-northeast-1 --profile chatwork-webhook
@@ -77,6 +101,13 @@ echo   OK
 echo.
 
 echo === セットアップ完了 ===
+echo.
+echo 全チェック結果:
+echo   Python:      OK
+echo   pip:         OK
+echo   Claude Code: OK
+echo   AWS CLI:     OK
+echo   AWSプロファイル: OK
 echo.
 echo 起動方法: start_poller.bat をダブルクリック
 echo.
