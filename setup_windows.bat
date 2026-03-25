@@ -58,8 +58,8 @@ if errorlevel 1 (
     echo.
     echo   2. ダウンロードした AWSCLIV2.msi をダブルクリックしてインストール
     echo.
-    echo   3. インストール完了後、このコマンドプロンプトを閉じて、
-    echo      setup_windows.bat をもう一度実行してください
+    echo   3. インストール完了後、このコマンドプロンプトを閉じて
+    echo      もう一度 setup_windows を実行してください
     echo.
     pause
     exit /b 1
