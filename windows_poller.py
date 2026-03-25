@@ -14,6 +14,7 @@ import logging
 import requests
 import os
 import glob
+import re
 import threading
 from datetime import datetime
 
@@ -295,6 +296,7 @@ def load_instructions(member_dir, room_id=""):
         f for f in glob.glob(os.path.join(member_dir, "*.md"))
         if not os.path.basename(f).startswith("room_")
         and not os.path.basename(f).startswith("chat_history_")
+        and os.path.basename(f) != "CLAUDE.md"
     ])
     # 3. ルーム固有の .md（あれば）
     room_md_files = []
@@ -381,6 +383,7 @@ def handle_status_command(member, room_id):
         f for f in glob.glob(os.path.join(member_dir, "*.md"))
         if not os.path.basename(f).startswith("room_")
         and not os.path.basename(f).startswith("chat_history_")
+        and os.path.basename(f) != "CLAUDE.md"
     ])
     lines.append(f"\n■ ペルソナ/指示: {len(member_files)}件")
     for f in member_files:
@@ -497,11 +500,9 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # メンテナンスコマンド判定: メッセージ本文から [To:xxx]名前さん\n を除去して比較
+    # メンテナンスコマンド判定: メッセージ本文から [To:xxx]名前さん\n を全て除去して比較
     raw_command = message.strip()
-    # [To:xxx]名前さん\n のプレフィックスを除去
-    import re
-    raw_command = re.sub(r'^\[To:\d+\][^\n]*\n', '', raw_command).strip()
+    raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', raw_command).strip()
     if raw_command == "/status" and MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
         log.info(f"/status コマンド検出: {member['name']}")
         status_msg = handle_status_command(member, room_id)
@@ -555,7 +556,7 @@ def process_message(body: dict):
                 log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
                 time.sleep(wait)
 
-    # 会話モード決定（TALK_MODE_ルームID > TALK_MODE > 1）
+    # 会話モード決定（TALK_MODE=ルームID:モード > TALK_MODE=デフォルト > 1）
     talk_mode = _get_talk_mode(member_dir, str(room_id))
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
@@ -668,8 +669,9 @@ def process_message(body: dict):
                     if followup_result.returncode == 0 and followup_reply:
                         log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
                         # [rp]タグ付与（元メッセージへの返信）
-                        if message_id and sender and sender_name:
-                            rp_header = f"[rp aid={sender} to={room_id}-{message_id}]{sender_name}さん"
+                        followup_sender_name = get_sender_name(member["cw_token"], room_id, sender) or sender_name
+                        if message_id and sender and followup_sender_name:
+                            rp_header = f"[rp aid={sender} to={room_id}-{message_id}]{followup_sender_name}さん"
                             followup_reply = f"{rp_header}\n{followup_reply}"
                         chatwork_post(member["cw_token"], room_id, followup_reply)
                     else:
