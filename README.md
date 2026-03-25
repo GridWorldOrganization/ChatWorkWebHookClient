@@ -161,7 +161,7 @@ ALLOWED_ROOMS=426936385,427388771
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
 | `SQS_QUEUE_URL` | (必須) | SQSキューURL |
-| `CW_TOKEN_GURIKO` | (必須) | グリ姉トークン（エラー報告用） |
+| `CW_TOKEN_ERROR` | (必須) | エラー報告アカウントのトークン |
 | `CW_ERROR_ROOM_ID` | (必須) | エラー報告先ルームID |
 | `AWS_PROFILE` | (なし) | AWSプロファイル名（`setup_windows.bat`で`chatwork-webhook`を作成） |
 | `AWS_ACCESS_KEY_ID` | (なし) | AWSアクセスキー（プロファイル未設定時のフォールバック） |
