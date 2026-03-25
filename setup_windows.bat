@@ -86,11 +86,19 @@ echo   OK
 echo.
 
 REM ===== Step 5: AWS プロファイル設定 =====
-echo [5/5] AWS プロファイル「chatwork-webhook」を設定中...
-call aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
-call aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
-call aws configure set region ap-northeast-1 --profile chatwork-webhook
-echo   OK
+echo [5/5] AWS プロファイル設定中...
+if "%AWS_ACCESS_KEY_ID%"=="" (
+    if "%AWS_SECRET_ACCESS_KEY%"=="" (
+        echo   [SKIP] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY が config.env に未設定です
+        echo          AWS_PROFILE で既にプロファイル設定済みならスキップして問題ありません
+        echo          未設定の場合は config.env に追記するか、aws configure --profile chatwork-webhook を実行してください
+    )
+) else (
+    call aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
+    call aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
+    call aws configure set region ap-northeast-1 --profile chatwork-webhook
+    echo   OK
+)
 echo.
 
 echo === セットアップ完了 ===
