@@ -391,14 +391,14 @@ def run_claude(prompt, cwd, member_name):
         cwd=cwd
     )
 
-    # プロセスを追跡リストに登録
+    # プロセスを追跡リストに登録 + PIDファイルに記録
     with _process_lock:
         _active_processes.append(proc)
+    _save_pid(proc.pid)
 
     try:
         stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
         log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={proc.returncode})")
-        # subprocess.run 互換の結果オブジェクトを返す
         result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         return result
 
@@ -413,6 +413,7 @@ def run_claude(prompt, cwd, member_name):
         with _process_lock:
             if proc in _active_processes:
                 _active_processes.remove(proc)
+        _remove_pid(proc.pid)
 
 def kill_all_claude_processes():
     """全ての実行中Claudeプロセスを強制終了"""
@@ -425,24 +426,63 @@ def kill_all_claude_processes():
                 pass
         _active_processes.clear()
 
-def check_orphan_claude_processes():
-    """起動時に残留Claudeプロセスを検知・警告"""
+_PID_FILE = os.path.join(SCRIPT_DIR, ".claude_pids")
+
+def _save_pid(pid):
+    """子プロセスのPIDをファイルに記録"""
     try:
-        if os.name == 'nt':
-            result = subprocess.run(
-                ["tasklist", "/FI", f"IMAGENAME eq {os.path.basename(CLAUDE_COMMAND)}*", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
-            )
-            lines = [l for l in result.stdout.strip().splitlines() if l and "INFO:" not in l]
-            if lines:
-                log.warning(f"残留Claudeプロセスを検出（{len(lines)}件）:")
-                for line in lines:
-                    log.warning(f"  {line}")
-                log.warning("前回の強制終了で残った可能性があります。手動で終了するか、このまま続行してください。")
-                return len(lines)
+        with open(_PID_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{pid}\n")
+    except Exception:
+        pass
+
+def _remove_pid(pid):
+    """完了したPIDをファイルから削除"""
+    try:
+        if not os.path.exists(_PID_FILE):
+            return
+        with open(_PID_FILE, "r", encoding="utf-8") as f:
+            pids = {l.strip() for l in f if l.strip()}
+        pids.discard(str(pid))
+        with open(_PID_FILE, "w", encoding="utf-8") as f:
+            for p in pids:
+                f.write(f"{p}\n")
+    except Exception:
+        pass
+
+def kill_orphan_claude_processes():
+    """起動時にポーラーが起動した残留プロセスを検知しkill（手動claudeは対象外）"""
+    killed = 0
+    if not os.path.exists(_PID_FILE):
+        return 0
+    try:
+        with open(_PID_FILE, "r", encoding="utf-8") as f:
+            pids = [l.strip() for l in f if l.strip()]
+        for pid_str in pids:
+            try:
+                pid = int(pid_str)
+                if os.name == 'nt':
+                    # プロセスが存在するか確認
+                    check = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if str(pid) in check.stdout:
+                        log.warning(f"残留プロセス検出: PID={pid}")
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                     capture_output=True, timeout=5)
+                        log.info(f"残留プロセスをkill: PID={pid}")
+                        killed += 1
+                else:
+                    os.kill(pid, signal.SIGKILL)
+                    killed += 1
+            except (ValueError, ProcessLookupError, PermissionError):
+                pass
+        # PIDファイルをクリア
+        os.remove(_PID_FILE)
     except Exception as e:
-        log.warning(f"残留プロセス検知エラー: {e}")
-    return 0
+        log.warning(f"残留プロセス処理エラー: {e}")
+    return killed
 
 def handle_status_command(member, room_id):
     """メンテナンスコマンド /status: メンバーの設定状況を報告"""
@@ -1000,10 +1040,10 @@ def main():
             log.info(f"      - {os.path.basename(f)}")
     log.info(f"メンバー合計: {len(MEMBERS)}名")
 
-    # 残留Claudeプロセス検知
-    orphans = check_orphan_claude_processes()
+    # 残留Claudeプロセス検知・kill（ポーラーが起動したもののみ）
+    orphans = kill_orphan_claude_processes()
     if orphans:
-        log.warning(f"残留プロセス {orphans}件 を検出しました")
+        log.info(f"残留プロセス {orphans}件 をkillしました")
 
     while not _shutdown_requested:
         try:
