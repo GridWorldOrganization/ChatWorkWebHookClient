@@ -45,18 +45,27 @@ CW_ERROR_ROOM_ID = int(os.environ.get("CW_ERROR_ROOM_ID", "0"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CLIENTS_DIR = os.path.join(SCRIPT_DIR, "clients")
 
+def _parse_room_ids(env_key):
+    """環境変数からルームIDリストをパース。空なら空セット（=全ルーム許可）"""
+    val = os.environ.get(env_key, "").strip()
+    if not val:
+        return set()
+    return {s.strip() for s in val.split(",") if s.strip()}
+
 MEMBERS = {
     "01_yokota": {
         "name": "横田 百恵",
         "account_id": 11202266,
         "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
         "dir": os.path.join(CLIENTS_DIR, "01_yokota"),
+        "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_YOKOTA"),
     },
     "02_fujino": {
         "name": "藤野 楓",
         "account_id": 11204912,
         "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
         "dir": os.path.join(CLIENTS_DIR, "02_fujino"),
+        "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_FUJINO"),
     },
 }
 
@@ -73,6 +82,11 @@ _chain_lock = threading.Lock()
 # key: member_key, value: timestamp
 _last_reply_time = {}
 _reply_time_lock = threading.Lock()
+
+# メンバー×ルームごとの会話ID管理
+# key: "member_key:room_id", value: conversation_id
+_conversation_ids = {}
+_conv_id_lock = threading.Lock()
 
 # ===== ログ設定 =====
 logging.basicConfig(
@@ -276,6 +290,12 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
+    # ルームIDホワイトリスト判定
+    allowed = member.get("allowed_rooms", set())
+    if allowed and str(room_id) not in allowed:
+        log.info(f"ルーム {room_id} は {member['name']} の許可リストにないためスキップ")
+        return
+
     # 会話チェーン管理（AI同士の会話回数制御）
     if not check_ai_conversation_allowed(room_id, sender):
         # 上限到達時は終了メッセージを投稿
@@ -333,10 +353,20 @@ def process_message(body: dict):
         f"=== メッセージ本文 ===\n{message}"
     )
 
-    log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒")
+    # 会話ID取得（既存の会話を継続するか判定）
+    conv_key = f"{member_key}:{room_id}"
+    cmd = [CLAUDE_COMMAND, "-p", prompt, "--conversation"]
+    with _conv_id_lock:
+        existing_conv_id = _conversation_ids.get(conv_key)
+    if existing_conv_id:
+        cmd.extend(["--resume", existing_conv_id])
+        log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒 conversation={existing_conv_id}")
+    else:
+        log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒 (新規会話)")
+
     try:
         result = subprocess.run(
-            [CLAUDE_COMMAND, "-p", prompt],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -345,6 +375,17 @@ def process_message(body: dict):
             timeout=CLAUDE_TIMEOUT
         )
         log.info(f"<<< Claude Code 実行完了 [{member['name']}] (exit={result.returncode})")
+
+        # conversation_id を stderr から抽出して保存
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                line = line.strip()
+                # claude --conversation は conversation_id を stderr に出力する
+                if line and not line.startswith("[") and len(line) < 100:
+                    with _conv_id_lock:
+                        _conversation_ids[conv_key] = line
+                        log.info(f"会話ID保存: {conv_key} = {line}")
+                    break
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -545,7 +586,9 @@ def main():
     log.info(f"登録メンバー数: {len(MEMBERS)}")
     for key, member in MEMBERS.items():
         md_files = glob.glob(os.path.join(member["dir"], "*.md"))
-        log.info(f"  {member['name']} ({key}): 指示ファイル {len(md_files)}件, cwd={member['dir']}")
+        rooms = member.get("allowed_rooms", set())
+        rooms_str = ", ".join(rooms) if rooms else "全ルーム"
+        log.info(f"  {member['name']} ({key}): 指示ファイル {len(md_files)}件, cwd={member['dir']}, 許可ルーム=[{rooms_str}]")
         for f in sorted(md_files):
             log.info(f"    - {os.path.basename(f)}")
 
