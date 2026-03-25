@@ -81,24 +81,35 @@ CONV_MODES = {
     0: {
         "name": "メンテナンス",
         "instruction": (
-            "メンテナンスモードです。機械的に端的に話してください。\n"
-            "余計なことは一切言わない。聞かれたことだけに最短で答える。\n"
-            "絵文字・装飾・雑談・感情表現は禁止。事実のみ。"
+            "メンテナンスモードです。機械的に端的に話してください。"
+            "余計なことは一切言わない。聞かれたことだけに最短で答える。"
+            "絵文字・装飾・雑談・感情表現は禁止。事実のみ。改行禁止。1行で回答する。"
         ),
     },
     1: {
         "name": "業務",
         "instruction": (
-            "業務モードです。端的に短くわかりやすく話してください。\n"
-            "要点を簡潔に伝える。丁寧語だが余計な装飾や雑談はしない。\n"
+            "業務モードです。端的に短くわかりやすく話してください。"
+            "要点を簡潔に伝える。丁寧語だが余計な装飾や雑談はしない。"
             "絵文字は使わない。1〜3行程度で回答する。"
         ),
     },
     2: {
         "name": "ペルソナ",
         "instruction": (
-            "ペルソナモードです。ペルソナ設定に準拠し、感情豊かに話してください。\n"
+            "ペルソナモードです。ペルソナ設定に準拠し、感情豊かに話してください。"
             "キャラクターらしい口調・性格・趣味を反映して自然に会話する。"
+        ),
+    },
+    3: {
+        "name": "ペルソナ+",
+        "instruction": (
+            "ペルソナ+モードです。ペルソナ設定に準拠し、感情豊かに話してください。"
+            "キャラクターらしい口調・性格・趣味を反映して自然に会話する。"
+            "さらに、このルームにいる他のメンバーにも時折話を振ってください。"
+            "「○○さんはどう思います？」「○○さんも好きでしたよね？」のように自然に巻き込む。"
+            "話を振る相手には [To:アカウントID]名前さん を使ってください。"
+            "ただし毎回振る必要はない。3〜4回に1回程度、自然なタイミングで。"
         ),
     },
 }
@@ -544,6 +555,26 @@ def process_message(body: dict):
     # 指示ファイル読み込み
     instructions = load_instructions(member_dir, room_id)
 
+    # モード3(ペルソナ+)の場合、ルームメンバー情報を取得
+    room_members_info = ""
+    if conv_mode == 3:
+        try:
+            res = requests.get(
+                f"{CW_API_BASE}/rooms/{room_id}/members",
+                headers={"X-ChatWorkToken": member["cw_token"]}
+            )
+            if res.status_code == 200:
+                others = [
+                    f"  - {m['name']}(ID:{m['account_id']})"
+                    for m in res.json()
+                    if str(m["account_id"]) != str(member["account_id"])
+                    and m.get("role", "") != "readonly"
+                ]
+                if others:
+                    room_members_info = "=== このルームの他のメンバー（話を振れる相手） ===\n" + "\n".join(others) + "\n\n"
+        except Exception as e:
+            log.error(f"ルームメンバー取得エラー(モード3): {e}")
+
     # 事前に届いたメッセージの文脈
     prior_context = body.get("_prior_context", "")
 
@@ -557,6 +588,7 @@ def process_message(body: dict):
         f"通常は送信者への返信になります。[rp]タグはシステムが自動付与するので出力不要です。\n"
         f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n"
         f"例: [To:11204912]藤野 楓さん\n\n"
+        f"{room_members_info}"
         f"=== 返信の指示 ===\n{instructions}\n\n"
     )
     if prior_context:
