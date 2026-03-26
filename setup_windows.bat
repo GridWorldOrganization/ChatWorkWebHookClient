@@ -102,13 +102,7 @@ echo.
 
 REM ===== Step 6: Google Workspace API 確認 =====
 echo [6/6] Google Workspace API check...
-python -c "from google.oauth2 import service_account; from googleapiclient.discovery import build; print('OK')" 2>nul
-if errorlevel 1 (
-    echo   [WARN] Google API libraries not installed
-    echo          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-) else (
-    echo   OK
-)
+python check_gws.py
 echo.
 
 echo === Setup Complete ===
