@@ -1,7 +1,21 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+setlocal enabledelayedexpansion
 set AWS_DEFAULT_REGION=ap-northeast-1
+
+REM 多重起動チェック（windows_poller.py が既に実行中か確認）
+tasklist /FI "IMAGENAME eq python.exe" /FO CSV /NH 2>nul | findstr /i "python" >nul
+if not errorlevel 1 (
+    wmic process where "name='python.exe'" get CommandLine /FORMAT:LIST 2>nul | findstr /i "windows_poller" >nul
+    if not errorlevel 1 (
+        echo [WARN] windows_poller.py is already running.
+        echo        Multiple instances may cause duplicate processing.
+        echo.
+        set /p CONFIRM="Continue anyway? (y/N): "
+        if /i not "!CONFIRM!"=="y" exit /b 1
+    )
+)
 
 REM config.env から環境変数を読み込み（コメント行・空行をスキップ）
 if exist config.env (

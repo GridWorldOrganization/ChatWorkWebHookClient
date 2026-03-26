@@ -1,7 +1,18 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo === Chatwork Webhook Poller セットアップ ===
+
+REM 多重起動チェック
+for /f "tokens=2" %%A in ('tasklist /FI "WINDOWTITLE eq Chatwork Webhook Poller *" /FO LIST 2^>nul ^| findstr "PID:"') do (
+    if not "%%A"=="%PID%" (
+        echo [WARN] Another setup or poller instance may be running.
+        echo        Close other instances before running setup.
+        echo.
+        pause
+    )
+)
+
+echo === Chatwork Webhook Poller Setup ===
 echo.
 
 REM config.env の存在確認
