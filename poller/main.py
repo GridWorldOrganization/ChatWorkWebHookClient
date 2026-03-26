@@ -242,13 +242,8 @@ def main() -> None:
         member_names = ", ".join(m["name"] for m in MEMBERS.values())
         ai_mode = "API直接" if USE_DIRECT_API else "CLI"
         from poller.config import VERSION
-        startup_msg = (
-            f"[info][title]Poller v{VERSION} 起動[/title]"
-            f"メンバー: {member_names} ({len(MEMBERS)}名)\n"
-            f"AI: {ai_mode} / {CLAUDE_MODEL}\n"
-            f"ポーリング: {'ロング' if SQS_WAIT_TIME_SECONDS > 0 else 'ショート'}"
-            f"[/info]"
-        )
+        poll_label = "ロング" if SQS_WAIT_TIME_SECONDS > 0 else "ショート"
+        startup_msg = f"Poller v{VERSION} 起動 / {member_names}({len(MEMBERS)}名) / {ai_mode} {CLAUDE_MODEL} / {poll_label}"
         chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, startup_msg)
 
     # --- ポーリングループ ---

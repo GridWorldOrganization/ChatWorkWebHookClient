@@ -254,16 +254,16 @@ def handle_system() -> str:
 
     google_email = os.environ.get("GOOGLE_EMAIL", "")
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-    lines.append(f"\n■ Google Workspace API")
-    lines.append(f"  Email: {google_email or '未設定'}")
     if not client_id:
-        lines.append(f"  OAuth: 未設定")
+        oauth_status = "未設定"
     elif not os.path.exists(GOOGLE_TOKEN_PATH):
-        lines.append(f"  OAuth: 設定済・未認証（check_gws.bat を実行）")
+        oauth_status = "未認証"
     else:
-        lines.append(f"  OAuth: 認証済")
-    lines.append(f"  マイドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else 'OFF'}")
-    lines.append(f"  共有ドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_SHARED else 'OFF'}")
+        oauth_status = "認証済"
+    my_drive = "ON" if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else "OFF"
+    shared_drive = "ON" if GOOGLE_DRIVE_INCLUDE_SHARED else "OFF"
+    lines.append(f"\n■ Google Workspace API")
+    lines.append(f"  {google_email or '未設定'} / OAuth:{oauth_status} / マイドライブ:{my_drive} / 共有ドライブ:{shared_drive}")
 
     from poller.config import DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
     lines.append(f"\n■ デバッグ通知")
@@ -278,8 +278,7 @@ def handle_system() -> str:
             if s["status"] == "running":
                 active_count += 1
     lines.append(f"\n■ 実行状態")
-    lines.append(f"  AI実行中: {active_count}/{len(MEMBERS)}")
-    lines.append(f"  CLIプロセス追跡: {len(state.active_processes)}件")
+    lines.append(f"  AI実行中: {active_count}/{len(MEMBERS)} / CLIプロセス追跡: {len(state.active_processes)}件")
 
     lines.append("[/info]")
     return "\n".join(lines)
@@ -313,15 +312,9 @@ def handle_bill() -> str:
         cost_out = out_tok / 1_000_000 * pricing["output"]
         cost = cost_in + cost_out
         total_cost += cost
-        lines.append(f"■ {model}")
-        lines.append(f"  呼出回数: {calls}回")
-        lines.append(f"  入力: {in_tok:,} tokens (${cost_in:.4f})")
-        lines.append(f"  出力: {out_tok:,} tokens (${cost_out:.4f})")
-        lines.append(f"  小計: ${cost:.4f}")
-        lines.append("")
+        lines.append(f"{model}: {calls}回 / 入力{in_tok:,} 出力{out_tok:,} tokens / ${cost:.4f}")
 
-    lines.append(f"合計: {total_calls}回 / ${total_cost:.4f}")
-    lines.append(f"（公開単価による概算。実際の請求額とは異なる場合があります）")
+    lines.append(f"合計: {total_calls}回 / ${total_cost:.4f}（概算）")
     lines.append("[/info]")
     return "\n".join(lines)
 
@@ -521,9 +514,13 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         room_id = _extract_room_id(raw_input)
         if not room_id.isdigit():
             return "ルームIDは数字で入力してください。"
+        member = MEMBERS[session["member_key"]]
+        room_names = _get_room_names(member.get("cw_token", ""))
+        rname = room_names.get(room_id, room_id)
         state.talk_session["target_room_id"] = room_id
+        state.talk_session["target_room_name"] = rname
         state.talk_session["state"] = "add_room_mode"
-        return f"ルームID {room_id} の会話モードを返信してください（{_mode_options_str()}）"
+        return f"ルーム「{rname}」の会話モードを返信してください（{_mode_options_str()}）"
 
     # --- 追加: モード入力 ---
     if current_state == "add_room_mode":
@@ -536,6 +533,7 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
 
         member = MEMBERS[session["member_key"]]
         target_room = session["target_room_id"]
+        rname = session.get("target_room_name", target_room)
         err = _write_mode_env(member["dir"], target_room, new_mode)
         state.talk_session = {}
         if err:
@@ -543,7 +541,7 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         member_num = session.get("member_num", "")
         mode_name = TALK_MODES[new_mode]["name"]
         log.info(f"/talk 対話: {member['name']} room={target_room} 追加 → {new_mode}({mode_name})")
-        return f"{member_num}:{member['name']}のルーム別会話設定を追加しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+        return f"{member_num}:{member['name']}のルーム別会話設定を追加しました。\nルーム「{rname}」→ {new_mode}（{mode_name}）"
 
     # --- 変更: ルームID入力 ---
     if current_state == "change_room_id":
@@ -554,9 +552,12 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
             return f"ルームID {room_id} のルーム別設定はありません。正しいルームIDを入力してください。"
         current_mode = room_modes[room_id]
         current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
+        room_names = _get_room_names(member.get("cw_token", ""))
+        rname = room_names.get(room_id, room_id)
         state.talk_session["target_room_id"] = room_id
+        state.talk_session["target_room_name"] = rname
         state.talk_session["state"] = "change_room_mode"
-        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。\n変更する会話モードを返信してください（{_mode_options_str()}）"
+        return f"ルーム「{rname}」の会話モードは {current_mode}（{current_name}）です。\n変更する会話モードを返信してください（{_mode_options_str()}）"
 
     # --- 変更: モード入力 ---
     if current_state == "change_room_mode":
@@ -569,6 +570,7 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
 
         member = MEMBERS[session["member_key"]]
         target_room = session["target_room_id"]
+        rname = session.get("target_room_name", target_room)
         err = _write_mode_env(member["dir"], target_room, new_mode)
         state.talk_session = {}
         if err:
@@ -576,7 +578,7 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         member_num = session.get("member_num", "")
         mode_name = TALK_MODES[new_mode]["name"]
         log.info(f"/talk 対話: {member['name']} room={target_room} 変更 → {new_mode}({mode_name})")
-        return f"{member_num}:{member['name']}のルーム別会話設定を変更しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+        return f"{member_num}:{member['name']}のルーム別会話設定を変更しました。\nルーム「{rname}」→ {new_mode}（{mode_name}）"
 
     # --- 削除: ルームID入力 ---
     if current_state == "delete_room_id":
@@ -588,9 +590,12 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
             return f"ルームID {room_id} のルーム別設定はありません。"
         current_mode = room_modes[room_id]
         current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
+        room_names = _get_room_names(member.get("cw_token", ""))
+        rname = room_names.get(room_id, room_id)
         state.talk_session["target_room_id"] = room_id
+        state.talk_session["target_room_name"] = rname
         state.talk_session["state"] = "delete_confirm"
-        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。削除しますか？（y/n）"
+        return f"ルーム「{rname}」の会話モードは {current_mode}（{current_name}）です。削除しますか？（y/n）"
 
     # --- 削除: 確認 ---
     if current_state == "delete_confirm":
@@ -598,12 +603,13 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
             member = MEMBERS[session["member_key"]]
             member_num = session.get("member_num", "")
             target_room = session["target_room_id"]
+            rname = session.get("target_room_name", target_room)
             err = _delete_room_mode(member["dir"], target_room)
             state.talk_session = {}
             if err:
                 return err
             log.info(f"/talk 対話: {member['name']} room={target_room} 削除")
-            return f"{member_num}:{member['name']}のルームID {target_room} の会話モード設定を削除しました。デフォルトとなります。"
+            return f"{member_num}:{member['name']}のルーム「{rname}」の会話モード設定を削除しました。デフォルトとなります。"
         state.talk_session = {}
         return "キャンセルしました。"
 
@@ -726,9 +732,7 @@ def handle_gws() -> str:
             ).execute().get("files", [])
             results.append(f"共有ドライブ: {len(shared_files)}件")
 
-        lines.append("状態: 全テスト合格")
-        for r in results:
-            lines.append(f"  {r}")
+        lines.append(f"状態: 全テスト合格（{', '.join(results)}）")
 
     except Exception as e:
         lines.append("状態: テスト失敗")

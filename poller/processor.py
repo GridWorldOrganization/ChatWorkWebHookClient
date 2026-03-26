@@ -294,7 +294,7 @@ def process_message(body: dict[str, Any]) -> None:
              or f"[rp aid={DEBUG_NOTICE_CHATWORK_ACCOUNT_ID} " in message)
     )
 
-    # /talk 対話セッション応答の検出（コマンド判定より先に処理）
+    # デバッグアカウント宛の非コマンドメッセージ → セッション応答 or 無視（AIには渡さない）
     if is_debug_msg and not is_command:
         session_input = re.sub(
             r'\[(To:\d+[^\]]*|rp aid=\d+ to=\d+-\d+)\][^\n]*\n?', '', message.strip()
@@ -306,6 +306,8 @@ def process_message(body: dict[str, Any]) -> None:
                 log.info(f"/talk 対話セッション応答: input='{session_input}'")
                 chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, reply)
                 return
+        log.info(f"デバッグアカウント宛の非コマンドメッセージを無視: '{raw_command}'")
+        return
 
     # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
     if is_command and is_debug_msg:
