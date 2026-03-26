@@ -112,6 +112,10 @@ AI_REFUSAL_KEYWORDS: list[str] = [
     "I can't help with",
     "I cannot assist with",
     "I'm not able to",
+    "I need to politely decline",
+    "I'm Claude, an AI assistant",
+    "I should be straightforward about what I am",
+    "I shouldn't fully roleplay",
 ]
 
 # =============================================================================

@@ -87,20 +87,28 @@ def _is_ai_refusal(reply_text: str) -> bool:
     for kw in AI_REFUSAL_KEYWORDS:
         if kw in reply_text:
             return True
-    # 構造パターン: 拒否 + 理由列挙
+    # 構造パターン（日本語）: 拒否 + 理由列挙
     refusal_words = ["できません", "お断り", "対応できません", "サポートできません", "応じられません"]
     reason_words = ["理由", "以下の点", "以下の理由", "問題があります"]
     has_refusal = any(w in reply_text for w in refusal_words)
     has_reason = any(w in reply_text for w in reason_words)
     if has_refusal and has_reason:
         return True
-    # 構造パターン: 拒否 + 代替提案
+    # 構造パターン（日本語）: 拒否 + 代替提案
     alternative_words = ["代わりに", "お手伝いできます", "サポートできます", "以下のような"]
     if has_refusal and any(w in reply_text for w in alternative_words):
         return True
-    # 構造パターン: なりすまし/不適切 関連
+    # 構造パターン（日本語）: なりすまし/不適切 関連
     impersonation_words = ["なりすまし", "不適切", "倫理的", "安全上", "ポリシー"]
     if any(w in reply_text for w in impersonation_words) and has_refusal:
+        return True
+    # 構造パターン（英語）: decline/refuse + alternative
+    en_refusal = any(w in reply_text for w in ["decline", "cannot", "shouldn't", "I'm unable"])
+    en_alternative = any(w in reply_text for w in ["I'm happy to help", "I can help", "happy to assist", "Instead,"])
+    en_identity = any(w in reply_text for w in ["I'm Claude", "I am Claude", "AI assistant made by"])
+    if en_refusal and en_alternative:
+        return True
+    if en_identity:
         return True
     return False
 
