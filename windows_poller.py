@@ -1238,14 +1238,23 @@ def main():
 
     log.info(f"--- メンバー ({len(MEMBERS)}名) ---")
     for idx, (key, member) in enumerate(MEMBERS.items(), 1):
-        md_files = glob.glob(os.path.join(member["dir"], "*.md"))
         rooms = member.get("allowed_rooms", set())
         rooms_str = ", ".join(sorted(rooms)) if rooms else "なし（全送信不可）"
         token_status = '設定済' if member['cw_token'] else '未設定'
         log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key}) account_id={member['account_id']} cw_token={token_status}")
         log.info(f"    許可ルーム: [{rooms_str}]")
-        log.info(f"    指示ファイル: {len(md_files)}件")
-        for f in sorted(md_files):
+        # 実際に load_instructions が読み込む指示ファイルのみ列挙
+        common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        member_files = sorted(
+            f for f in glob.glob(os.path.join(member["dir"], "*.md"))
+            if not os.path.basename(f).startswith("room_")
+            and not os.path.basename(f).startswith("chat_history_")
+            and os.path.basename(f) != "CLAUDE.md"
+        )
+        room_specific = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
+        all_instruction_files = common_files + member_files + room_specific
+        log.info(f"    指示ファイル: {len(all_instruction_files)}件")
+        for f in all_instruction_files:
             log.info(f"      - {os.path.basename(f)}")
 
     # --- 残留プロセス cleanup ---
