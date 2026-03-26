@@ -1833,69 +1833,88 @@ def main():
     # --- ポーリングループ ---
     while not _shutdown_requested:
         try:
-            # フェーズ 1: キューを空になるまで全件読み込み
-            all_messages = []
-            is_first_poll = True
-            while True:
-                wait_time = SQS_WAIT_TIME_SECONDS if is_first_poll else 0
-                res = sqs.receive_message(
-                    QueueUrl=QUEUE_URL,
-                    MaxNumberOfMessages=10,
-                    WaitTimeSeconds=wait_time,
-                )
-                is_first_poll = False
-                batch = res.get("Messages", [])
-                if not batch:
-                    break
-                all_messages.extend(batch)
-                remaining = get_queue_count(sqs)
-                log.info(f"キュー読み込み中: 今回{len(batch)}件, 累計{len(all_messages)}件, 残り約{remaining}件")
-                if remaining == 0:
-                    break
-
+            # === 待機フェーズ: SQS ロングポーリングでメッセージを待つ ===
+            all_messages = _drain_sqs_queue(sqs, wait_first=True)
             if not all_messages:
                 continue
 
-            log.info(f"キュー読み込み完了: 合計{len(all_messages)}件")
+            # === アクティブウィンドウ: メッセージがある限り処理し続ける ===
+            while all_messages and not _shutdown_requested:
+                log.info(f"キュー読み込み完了: 合計{len(all_messages)}件")
+                _dispatch_messages(all_messages, sqs)
 
-            # フェーズ 2: メンバーごとにメッセージをグループ化
-            member_messages = {}
-            for msg in all_messages:
-                try:
-                    body_data = json.loads(msg["Body"])
-                    member = find_target_member(body_data)
-                    if not member:
-                        member = MEMBERS[next(iter(MEMBERS))]
-                    key = _find_member_key(member) or next(iter(MEMBERS))
-                    member_messages.setdefault(key, []).append((body_data, msg))
-                except Exception as e:
-                    log.error(f"メッセージ解析エラー: {e}")
-                    sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
-
-            # フェーズ 3: メンバーごとに並列処理
-            threads = []
-            for mk, msg_list in member_messages.items():
-                t = threading.Thread(target=process_member_batch, args=(mk, msg_list, sqs), daemon=True)
-                t.start()
-                threads.append(t)
-                log.info(f"バッチスレッド起動: {mk} ({len(msg_list)}件)")
-
-            thread_timeout = CLAUDE_TIMEOUT * 2 + FOLLOWUP_WAIT_SECONDS + REPLY_COOLDOWN_SECONDS + 60
-            for t in threads:
-                t.join(timeout=thread_timeout)
-                if t.is_alive():
-                    log.error(f"スレッドがタイムアウト({thread_timeout}秒)しました。次のポーリングに進みます。")
+                # 処理完了後、CLAUDE_TIMEOUT 秒間ショートポーリングで次のメッセージを待つ
+                active_start = time.time()
+                all_messages = []
+                while not _shutdown_requested:
+                    remaining = CLAUDE_TIMEOUT - (time.time() - active_start)
+                    if remaining <= 0:
+                        log.info(f"アクティブウィンドウ終了（{CLAUDE_TIMEOUT}秒経過）→ ロングポーリングに戻る")
+                        break
+                    time.sleep(POLL_INTERVAL)
+                    all_messages = _drain_sqs_queue(sqs, wait_first=False)
+                    if all_messages:
+                        log.info(f"アクティブウィンドウ: 新規メッセージ{len(all_messages)}件検出 → タイマーリセット")
+                        break  # 内側ループを抜けて処理ループへ
 
         except Exception as e:
             log.error(f"ポーリングエラー: {e}")
             time.sleep(10)
             continue
 
-        # ショートポーリング時のみインターバルを挟む
-        if SQS_WAIT_TIME_SECONDS == 0:
-            time.sleep(POLL_INTERVAL)
-
     log.info("=== ChatWork Webhook Poller 停止 ===")
+
+
+def _drain_sqs_queue(sqs, wait_first=True):
+    """SQS キューからメッセージを全件読み込む。wait_first=True の場合、最初のポーリングで WaitTimeSeconds を使用"""
+    all_messages = []
+    is_first = True
+    while True:
+        wait_time = (SQS_WAIT_TIME_SECONDS if wait_first and is_first else 0)
+        res = sqs.receive_message(
+            QueueUrl=QUEUE_URL,
+            MaxNumberOfMessages=10,
+            WaitTimeSeconds=wait_time,
+        )
+        is_first = False
+        batch = res.get("Messages", [])
+        if not batch:
+            break
+        all_messages.extend(batch)
+        remaining = get_queue_count(sqs)
+        log.info(f"キュー読み込み中: 今回{len(batch)}件, 累計{len(all_messages)}件, 残り約{remaining}件")
+        if remaining == 0:
+            break
+    return all_messages
+
+
+def _dispatch_messages(all_messages, sqs):
+    """メッセージをメンバーごとにグループ化し、並列スレッドで処理する"""
+    member_messages = {}
+    for msg in all_messages:
+        try:
+            body_data = json.loads(msg["Body"])
+            member = find_target_member(body_data)
+            if not member:
+                member = MEMBERS[next(iter(MEMBERS))]
+            key = _find_member_key(member) or next(iter(MEMBERS))
+            member_messages.setdefault(key, []).append((body_data, msg))
+        except Exception as e:
+            log.error(f"メッセージ解析エラー: {e}")
+            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
+
+    threads = []
+    for mk, msg_list in member_messages.items():
+        t = threading.Thread(target=process_member_batch, args=(mk, msg_list, sqs), daemon=True)
+        t.start()
+        threads.append(t)
+        log.info(f"バッチスレッド起動: {mk} ({len(msg_list)}件)")
+
+    thread_timeout = CLAUDE_TIMEOUT * 2 + FOLLOWUP_WAIT_SECONDS + REPLY_COOLDOWN_SECONDS + 60
+    for t in threads:
+        t.join(timeout=thread_timeout)
+        if t.is_alive():
+            log.error(f"スレッドがタイムアウト({thread_timeout}秒)しました。次のポーリングに進みます。")
 
 
 # =============================================================================
