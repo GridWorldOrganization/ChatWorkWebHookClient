@@ -48,13 +48,14 @@ CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "60"))
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
 REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
-MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
-
 # --- ChatWork API ---
 CHATWORK_API_TIMEOUT = 30  # ChatWork API 呼び出しのタイムアウト秒
 CHATWORK_API_BASE = "https://api.chatwork.com/v2"
-CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
-CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
+
+# --- デバッグ通知 ---
+DEBUG_NOTICE_ENABLED = os.environ.get("DEBUG_NOTICE_ENABLED", "1") == "1"
+DEBUG_NOTICE_CHATWORK_TOKEN = os.environ.get("DEBUG_NOTICE_CHATWORK_TOKEN", "")
+DEBUG_NOTICE_CHATWORK_ROOM_ID = int(os.environ.get("DEBUG_NOTICE_CHATWORK_ROOM_ID", "0"))
 
 # --- Google Workspace API ---
 GOOGLE_DRIVE_INCLUDE_MY_DRIVE = os.environ.get("GOOGLE_DRIVE_INCLUDE_MY_DRIVE", "0") == "1"
@@ -298,9 +299,12 @@ def chatwork_post(token, room_id, message):
 
 
 def notify_error(title, detail):
-    """エラー報告アカウントでエラー通知を投稿する"""
+    """デバッグ通知アカウントで通知を投稿する。DEBUG_NOTICE_ENABLED=0 の場合はログのみ"""
+    if not DEBUG_NOTICE_ENABLED or not DEBUG_NOTICE_CHATWORK_TOKEN or not DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        log.warning(f"[通知スキップ] {title}: {detail[:200]}")
+        return
     msg = f"[info][title]{title}[/title]{detail}[/info]"
-    chatwork_post(CHATWORK_API_TOKEN_ERROR_REPORTER, CHATWORK_ERROR_ROOM_ID, msg)
+    chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, msg)
 
 
 def get_sender_name(token, room_id, sender_account_id):
@@ -949,11 +953,11 @@ def handle_system_command():
     lines.append(f"  マイドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else 'OFF'}")
     lines.append(f"  共有ドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_SHARED else 'OFF'}")
 
-    # エラー報告
-    lines.append(f"\n■ エラー報告")
-    lines.append(f"  REPORTER_TOKEN: {'設定済' if CHATWORK_API_TOKEN_ERROR_REPORTER else '未設定'}")
-    lines.append(f"  ERROR_ROOM_ID: {CHATWORK_ERROR_ROOM_ID if CHATWORK_ERROR_ROOM_ID else '未設定'}")
-    lines.append(f"  MAINTENANCE_ROOM_ID: {MAINTENANCE_ROOM_ID if MAINTENANCE_ROOM_ID else '未設定'}")
+    # デバッグ通知
+    lines.append(f"\n■ デバッグ通知")
+    lines.append(f"  DEBUG_NOTICE_ENABLED: {'ON' if DEBUG_NOTICE_ENABLED else 'OFF'}")
+    lines.append(f"  CHATWORK_TOKEN: {'設定済' if DEBUG_NOTICE_CHATWORK_TOKEN else '未設定'}")
+    lines.append(f"  CHATWORK_ROOM_ID: {DEBUG_NOTICE_CHATWORK_ROOM_ID if DEBUG_NOTICE_CHATWORK_ROOM_ID else '未設定'}")
 
     # スレッド状態
     active_count = 0
@@ -1455,10 +1459,10 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # --- コマンド判定（CHATWORK_ERROR_ROOM_ID 内のみ、AI不使用）---
+    # --- コマンド判定（DEBUG_NOTICE_CHATWORK_ROOM_ID 内のみ、AI不使用）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
 
-    if CHATWORK_ERROR_ROOM_ID and str(room_id) == str(CHATWORK_ERROR_ROOM_ID):
+    if DEBUG_NOTICE_CHATWORK_ROOM_ID and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID):
         if raw_command == "/status":
             log.info(f"/status コマンド検出: {member['name']}")
             chatwork_post(member["cw_token"], room_id, handle_status_command(member, room_id))
@@ -1744,10 +1748,6 @@ def main():
     errors = []
     if not QUEUE_URL:
         errors.append("SQS_QUEUE_URL が未設定です → config.env に SQS_QUEUE_URL=https://... を追加してください")
-    if not CHATWORK_API_TOKEN_ERROR_REPORTER:
-        errors.append("CHATWORK_API_TOKEN_ERROR_REPORTER が未設定です → config.env にエラー報告用ChatWorkアカウントのAPIトークンを設定してください")
-    if CHATWORK_ERROR_ROOM_ID == 0:
-        errors.append("CHATWORK_ERROR_ROOM_ID が未設定です → config.env にエラー報告先のChatWorkルームIDを設定してください")
     if USE_DIRECT_API and not ANTHROPIC_API_KEY:
         errors.append("ANTHROPIC_API_KEY が未設定です → config.env に Anthropic API キーを設定してください（USE_DIRECT_API=1 の場合は必須）")
     for key, member in MEMBERS.items():
@@ -1766,6 +1766,33 @@ def main():
             log.error(f"作業フォルダが見つかりません: {member['dir']}")
             notify_error("起動エラー", f"作業フォルダが見つかりません: {member['dir']}")
             return
+
+    # --- デバッグ通知チェック ---
+    if DEBUG_NOTICE_ENABLED:
+        if not DEBUG_NOTICE_CHATWORK_TOKEN or DEBUG_NOTICE_CHATWORK_ROOM_ID == 0:
+            log.warning("=== デバッグ通知: 設定不完全 ===")
+            if not DEBUG_NOTICE_CHATWORK_TOKEN:
+                log.warning("  DEBUG_NOTICE_CHATWORK_TOKEN が未設定です")
+            if DEBUG_NOTICE_CHATWORK_ROOM_ID == 0:
+                log.warning("  DEBUG_NOTICE_CHATWORK_ROOM_ID が未設定です")
+            log.warning("  デバッグ通知は無効になります（ポーラーは起動を継続します）")
+        else:
+            # API接続テスト
+            try:
+                res = requests.get(
+                    f"{CHATWORK_API_BASE}/rooms/{DEBUG_NOTICE_CHATWORK_ROOM_ID}",
+                    headers={"X-ChatWorkToken": DEBUG_NOTICE_CHATWORK_TOKEN},
+                    timeout=CHATWORK_API_TIMEOUT,
+                )
+                if res.status_code == 200:
+                    room_name = res.json().get("name", "")
+                    log.info(f"デバッグ通知: 接続OK (room={room_name})")
+                else:
+                    log.warning(f"デバッグ通知: API応答エラー (status={res.status_code}) → 通知が届かない可能性があります")
+            except Exception as e:
+                log.warning(f"デバッグ通知: API接続失敗 ({e}) → 通知が届かない可能性があります")
+    else:
+        log.info("デバッグ通知: 無効（DEBUG_NOTICE_ENABLED=0）")
 
     sqs = boto3.client("sqs", region_name=AWS_REGION)
 

@@ -22,8 +22,8 @@ copy config.env.example config.env
 ```env
 AWS_PROFILE=chatwork-webhook
 SQS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/XXXX/chatwork-webhook-queue
-CHATWORK_API_TOKEN_ERROR_REPORTER=（エラー報告アカウントのChatWork APIトークン）
-CHATWORK_ERROR_ROOM_ID=（エラー報告先のChatWorkルームID）
+DEBUG_NOTICE_CHATWORK_TOKEN=（デバッグ通知用ChatWork APIトークン）
+DEBUG_NOTICE_CHATWORK_ROOM_ID=（デバッグ通知先のChatWorkルームID）
 ```
 
 ### 3. セットアップ実行

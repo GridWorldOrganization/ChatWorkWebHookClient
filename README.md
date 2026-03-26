@@ -113,8 +113,9 @@ ClaudeWorkMulti/
 |--------|------|-----------|------|
 | `AWS_PROFILE` | 必須 | — | AWSプロファイル名 |
 | `SQS_QUEUE_URL` | 必須 | — | SQS キューURL |
-| `CHATWORK_API_TOKEN_ERROR_REPORTER` | 必須 | — | エラー報告用ChatWork APIトークン |
-| `CHATWORK_ERROR_ROOM_ID` | 必須 | — | エラー報告先ChatWorkルームID |
+| `DEBUG_NOTICE_ENABLED` | — | `1` | デバッグ通知の有効/無効（1=有効, 0=無効） |
+| `DEBUG_NOTICE_CHATWORK_TOKEN` | — | — | デバッグ通知用ChatWork APIトークン |
+| `DEBUG_NOTICE_CHATWORK_ROOM_ID` | — | — | デバッグ通知先ChatWorkルームID（コマンドもこのルームで受付） |
 | `USE_DIRECT_API` | — | `1` | AI呼び出し方式（1=API直接, 0=CLI） |
 | `ANTHROPIC_API_KEY` | ※ | — | Anthropic APIキー（※ `USE_DIRECT_API=1` 時は必須） |
 | `CLAUDE_MODEL` | — | `claude-haiku-4-5` | 使用モデル |
@@ -125,7 +126,6 @@ ClaudeWorkMulti/
 | `FOLLOWUP_WAIT_SECONDS` | — | `30` | AIが「確認します」等と返信した場合、この秒数待ってからルーム情報を収集し再返信する |
 | `MAX_AI_CONVERSATION_TURNS` | — | `10` | AI同士の会話の最大ターン数 |
 | `REPLY_COOLDOWN_SECONDS` | — | `15` | 連投防止クールダウン・秒。同一メンバーが前回返信してからこの秒数経過するまで次の返信を待機する |
-| `MAINTENANCE_ROOM_ID` | — | — | メンテナンスルームID |
 
 ## 主な機能
 
