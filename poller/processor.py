@@ -118,17 +118,25 @@ def _needs_followup(reply_text: str) -> bool:
     return any(kw in reply_text for kw in FOLLOWUP_KEYWORDS)
 
 
-def _load_instructions(member_dir: str, room_id: str = "") -> str:
+def _load_instructions(member_dir: str, room_id: str = "", talk_mode: int = -1) -> str:
     """共通ルール + メンバー固有 + ルーム固有の .md を読み込み、指示文を構築する"""
+    # モード 0（ログ）/ 1（業務）ではペルソナファイルを読み込まない
+    skip_persona = talk_mode in (0, 1)
+    if skip_persona:
+        log.info(f"モード{talk_mode}: ペルソナファイル読み込みスキップ（共通ルールのみ）")
+
     common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
-    member_files = sorted(
-        f for f in glob.glob(os.path.join(member_dir, "*.md"))
-        if not os.path.basename(f).startswith("room_")
-        and not os.path.basename(f).startswith("chat_history_")
-        and os.path.basename(f) != "CLAUDE.md"
-    )
+    if skip_persona:
+        member_files = []
+    else:
+        member_files = sorted(
+            f for f in glob.glob(os.path.join(member_dir, "*.md"))
+            if not os.path.basename(f).startswith("room_")
+            and not os.path.basename(f).startswith("chat_history_")
+            and os.path.basename(f) != "CLAUDE.md"
+        )
     room_files: list[str] = []
-    if room_id:
+    if room_id and not skip_persona:
         room_md = os.path.join(member_dir, f"room_{room_id}.md")
         if os.path.exists(room_md):
             room_files = [room_md]
@@ -550,7 +558,7 @@ def process_message(body: dict[str, Any]) -> None:
         chatwork_post(member["cw_token"], room_id, "...。")
         return
 
-    instructions = _load_instructions(member_dir, room_id)
+    instructions = _load_instructions(member_dir, room_id, talk_mode)
 
     # --- モード 3 (ペルソナ+): ルームメンバー情報を取得 ---
     room_members_info = ""
