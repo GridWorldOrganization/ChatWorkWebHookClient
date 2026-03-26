@@ -645,7 +645,7 @@ def process_member_batch(member_key: str, msg_list: list[tuple[dict, dict]], sqs
     all_sqs_messages = [msg for _, msg in msg_list]
     if lock:
         lock.acquire()
-    try:
+    try:  # noqa: SIM117 — acquire/release を try/finally で管理
         my_aid = str(member["account_id"])
         filtered: list[tuple[dict, dict]] = []
         for body_data, msg in msg_list:
