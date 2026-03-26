@@ -277,6 +277,14 @@ def process_message(body: dict[str, Any]) -> None:
                   or re.match(r'^/talk\s+\d', raw_command)
                   or re.match(r'^/status\s+\d+$', raw_command))
 
+    # /system コマンド検知 → 宛先に関わらずブロックし、デバッグルームに通知
+    if raw_command == "/system":
+        log.info(f"/system 検知: room={room_id} → 無視")
+        if DEBUG_NOTICE_CHATWORK_TOKEN and DEBUG_NOTICE_CHATWORK_ROOM_ID:
+            chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID,
+                          "/systemを検知しました。無視します。")
+        return
+
     # デバッグルーム宛のメッセージかチェック（[To:] または [rp] タグ）
     is_debug_msg = (
         DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
