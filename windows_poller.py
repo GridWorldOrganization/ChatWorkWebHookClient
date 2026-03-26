@@ -826,98 +826,61 @@ def handle_session_command(room_id):
 
 
 def handle_gws_command():
-    """/gws: Google Workspace CLI の利用可否を調べて報告する"""
-    lines = ["[info][title]/gws: Google Workspace CLI[/title]"]
+    """/gws: Google Workspace API（Python）の接続状態を調べて報告する"""
+    lines = ["[info][title]/gws: Google Workspace API[/title]"]
 
-    # gws コマンドの存在チェック
-    gws_version = None
-    gws_path = None
-    try:
-        result = subprocess.run(
-            ["gws", "--version"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0:
-            gws_version = result.stdout.strip()
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        lines.append(f"チェック中にエラー: {e}")
-
-    if not gws_version:
-        # バージョン取得失敗 → help で再試行
-        try:
-            result = subprocess.run(
-                ["gws", "help"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                gws_version = "(version unknown)"
-        except (FileNotFoundError, Exception):
-            pass
-
-    # パスを検索
-    if gws_version:
-        try:
-            if os.name == "nt":
-                where_result = subprocess.run(
-                    ["where", "gws"], capture_output=True, text=True, timeout=5,
-                )
-            else:
-                where_result = subprocess.run(
-                    ["which", "gws"], capture_output=True, text=True, timeout=5,
-                )
-            if where_result.returncode == 0:
-                gws_path = where_result.stdout.strip().split("\n")[0]
-        except Exception:
-            pass
-
-    # 認証状態チェック
-    auth_status = None
-    if gws_version:
-        try:
-            result = subprocess.run(
-                ["gws", "auth", "status"],
-                capture_output=True, text=True, timeout=10,
-            )
-            auth_status = (result.stdout.strip() + "\n" + result.stderr.strip()).strip()
-            if not auth_status:
-                auth_status = f"exit={result.returncode}"
-        except Exception as e:
-            auth_status = f"チェック失敗: {e}"
-
-    # 利用可能なサービス一覧
-    services = None
-    if gws_version:
-        try:
-            result = subprocess.run(
-                ["gws", "help"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                services = result.stdout.strip()
-        except Exception:
-            pass
-
-    # 結果を構築
-    if gws_version:
-        lines.append(f"状態: 利用可能")
-        lines.append(f"バージョン: {gws_version}")
-        if gws_path:
-            lines.append(f"パス: {gws_path}")
-        if auth_status:
-            lines.append(f"\n■ 認証状態")
-            lines.append(f"  {auth_status}")
-        if services:
-            lines.append(f"\n■ ヘルプ出力")
-            # 長すぎる場合は先頭500文字に制限
-            lines.append(f"  {services[:500]}")
-    else:
-        lines.append("状態: 未インストール")
+    # キーファイルパスの取得
+    key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_PATH", "")
+    if not key_path:
+        lines.append("状態: 未設定")
         lines.append("")
-        lines.append("インストール方法:")
-        lines.append("  https://github.com/googleworkspace/cli")
-        lines.append("  go install github.com/googleworkspace/cli/cmd/gws@latest")
+        lines.append("config.env に以下を追加してください:")
+        lines.append("  GOOGLE_SERVICE_ACCOUNT_KEY_PATH=C:\\path\\to\\service-account.json")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    if not os.path.exists(key_path):
+        lines.append(f"状態: キーファイル未検出")
+        lines.append(f"  パス: {key_path}")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    # ライブラリチェック
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+    except ImportError:
+        lines.append("状態: ライブラリ未インストール")
+        lines.append("  pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    # 認証チェック
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            key_path,
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        lines.append("状態: 利用可能")
+        lines.append(f"  アカウント: {credentials.service_account_email}")
+        lines.append(f"  プロジェクト: {credentials.project_id}")
+    except Exception as e:
+        lines.append(f"状態: 認証エラー")
+        lines.append(f"  {e}")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    # Drive API 接続テスト
+    try:
+        service = build("drive", "v3", credentials=credentials)
+        results = service.files().list(pageSize=3, fields="files(id, name)").execute()
+        files = results.get("files", [])
+        lines.append(f"\n■ Drive API: 接続OK（{len(files)}件取得）")
+        for f in files:
+            lines.append(f"  - {f['name']}")
+    except Exception as e:
+        lines.append(f"\n■ Drive API: 接続エラー")
+        lines.append(f"  {str(e)[:200]}")
 
     lines.append("[/info]")
     return "\n".join(lines)

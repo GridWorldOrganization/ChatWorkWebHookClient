@@ -35,8 +35,8 @@ echo   OK
 echo.
 
 REM ===== Step 2: pip パッケージインストール =====
-echo [2/6] pip install boto3, requests, anthropic...
-call pip install boto3 requests anthropic
+echo [2/6] pip install dependencies...
+call pip install boto3 requests anthropic google-api-python-client google-auth-httplib2 google-auth-oauthlib
 echo   OK
 echo.
 
@@ -100,15 +100,13 @@ echo          Otherwise: aws configure --profile chatwork-webhook
 :AFTER_AWS_KEYS
 echo.
 
-REM ===== Step 6: Google Workspace CLI 確認 =====
-echo [6/6] Google Workspace CLI check...
-gws --version >nul 2>&1
+REM ===== Step 6: Google Workspace API 確認 =====
+echo [6/6] Google Workspace API check...
+python -c "from google.oauth2 import service_account; from googleapiclient.discovery import build; print('OK')" 2>nul
 if errorlevel 1 (
-    echo   [SKIP] gws command not found
-    echo          Optional. Install: go install github.com/googleworkspace/cli/cmd/gws@latest
-    echo          https://github.com/googleworkspace/cli
+    echo   [WARN] Google API libraries not installed
+    echo          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 ) else (
-    gws --version
     echo   OK
 )
 echo.
@@ -121,7 +119,7 @@ echo   pip:         OK
 echo   Claude Code: OK
 echo   AWS CLI:     OK
 echo   AWS Profile: OK
-echo   GWS CLI:     optional
+echo   Google API:  optional (check_gws.bat for details)
 echo.
 echo 起動方法: start_poller.bat をダブルクリック
 
