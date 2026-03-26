@@ -56,6 +56,10 @@ CHATWORK_API_BASE = "https://api.chatwork.com/v2"
 CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
 CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
 
+# --- Google Drive 参照範囲 ---
+GOOGLE_DRIVE_INCLUDE_MY_DRIVE = os.environ.get("GOOGLE_DRIVE_INCLUDE_MY_DRIVE", "0") == "1"
+GOOGLE_DRIVE_INCLUDE_SHARED = os.environ.get("GOOGLE_DRIVE_INCLUDE_SHARED", "1") == "1"
+
 # --- 雑談フィルタキーワード（モード0: ログモード用）---
 CASUAL_CHAT_KEYWORDS = [
     "おはよう", "おはよ", "おは", "こんにちは", "こんばんは",
@@ -871,6 +875,11 @@ def handle_gws_command():
         lines.append("[/info]")
         return "\n".join(lines)
 
+    # 参照範囲を表示
+    my_drive_label = "ON" if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else "OFF"
+    shared_label = "ON" if GOOGLE_DRIVE_INCLUDE_SHARED else "OFF"
+    lines.append(f"参照範囲: マイドライブ={my_drive_label} / 共有ドライブ={shared_label}")
+
     # スプレッドシート CRUD テスト
     test_title = "_GWS_API_TEST_ (delete me)"
     sheet_id = None
@@ -916,9 +925,31 @@ def handle_gws_command():
         sheet_id = None
         results.append("削除: OK")
 
+        # Drive 参照テスト（設定に応じてマイドライブ / 共有ドライブを検索）
+        drive_queries = []
+        if GOOGLE_DRIVE_INCLUDE_MY_DRIVE:
+            my_files = drive.files().list(
+                pageSize=3,
+                fields="files(name)",
+                q="mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners",
+            ).execute().get("files", [])
+            drive_queries.append(f"マイドライブ: {len(my_files)}件")
+        if GOOGLE_DRIVE_INCLUDE_SHARED:
+            shared_files = drive.files().list(
+                pageSize=3,
+                fields="files(name)",
+                q="mimeType='application/vnd.google-apps.spreadsheet'",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+                corpora="allDrives",
+            ).execute().get("files", [])
+            drive_queries.append(f"共有ドライブ: {len(shared_files)}件")
+
         lines.append("状態: 全テスト合格")
         for r in results:
             lines.append(f"  {r}")
+        if drive_queries:
+            lines.append(f"  スプレッドシート検出: {' / '.join(drive_queries)}")
 
     except Exception as e:
         lines.append("状態: テスト失敗")
