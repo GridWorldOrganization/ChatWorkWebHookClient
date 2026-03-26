@@ -1969,16 +1969,50 @@ def _dispatch_messages(all_messages, sqs):
 #  シグナルハンドラ / エントリポイント
 # =============================================================================
 
+def _cleanup():
+    """子プロセスのkill + PIDファイル削除"""
+    kill_all_claude_processes()
+    if os.path.exists(_PID_FILE):
+        try:
+            os.remove(_PID_FILE)
+        except Exception:
+            pass
+
+
 def _signal_handler(sig, frame):
     """Ctrl+C / SIGTERM で graceful shutdown を開始する"""
     global _shutdown_requested
     _shutdown_requested = True
     log.info("シャットダウン要求を受信。実行中のAIプロセスを終了します...")
-    kill_all_claude_processes()
+    _cleanup()
     log.info("シャットダウン処理完了。ポーラーを停止します。")
 
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
+
+    # Windows: コンソールウィンドウの×ボタン / ログオフ / シャットダウン時のクリーンアップ
+    if os.name == "nt":
+        try:
+            import ctypes
+            _CTRL_CLOSE_EVENT = 2
+            _CTRL_LOGOFF_EVENT = 5
+            _CTRL_SHUTDOWN_EVENT = 6
+
+            @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
+            def _console_handler(event):
+                if event in (_CTRL_CLOSE_EVENT, _CTRL_LOGOFF_EVENT, _CTRL_SHUTDOWN_EVENT):
+                    _cleanup()
+                    return True
+                return False
+
+            ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True)
+        except Exception:
+            pass
+
+    # atexit: 正常終了時のフォールバック
+    import atexit
+    atexit.register(_cleanup)
+
     main()
