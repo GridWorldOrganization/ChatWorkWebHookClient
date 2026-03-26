@@ -28,7 +28,18 @@ CHATWORK_ERROR_ROOM_ID=（エラー報告先のChatWorkルームID）
 
 ### 3. セットアップ実行
 
-`setup_windows.bat` をダブルクリック。指示に従う。
+`setup_windows.bat` をダブルクリック。以下が自動実行されます：
+
+| Step | 内容 |
+|------|------|
+| 1 | Python の存在確認 |
+| 2 | pip パッケージインストール（boto3, requests, anthropic, google-api-python-client 等） |
+| 3 | Claude Code CLI の存在確認（`USE_DIRECT_API=0` の場合に必要） |
+| 4 | AWS CLI の存在確認 |
+| 5 | AWS プロファイル設定（config.env に `AWS_ACCESS_KEY_ID` がある場合のみ） |
+| 6 | Google Workspace API 接続テスト（config.env に OAuth 設定がある場合） |
+
+エラーが出た場合は画面の指示に従ってください。
 
 ### 4. メンバーを作成
 
