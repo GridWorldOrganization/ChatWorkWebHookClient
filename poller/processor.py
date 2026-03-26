@@ -23,6 +23,7 @@ from poller.config import (
     CHATWORK_API_TIMEOUT,
     CLAUDE_MODEL,
     CLAUDE_TIMEOUT,
+    DEBUG_NOTICE_CHATWORK_ACCOUNT_ID,
     DEBUG_NOTICE_CHATWORK_ROOM_ID,
     FOLLOWUP_KEYWORDS,
     FOLLOWUP_WAIT_SECONDS,
@@ -287,10 +288,13 @@ def process_message(body: dict[str, Any]) -> None:
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # --- コマンド判定（DEBUG_NOTICE_CHATWORK_ROOM_ID 内のみ）---
+    # --- コマンド判定（指定ルーム + 指定メンバー宛のみ）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
 
-    if DEBUG_NOTICE_CHATWORK_ROOM_ID and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID):
+    is_debug_room = DEBUG_NOTICE_CHATWORK_ROOM_ID and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
+    is_debug_member = (not DEBUG_NOTICE_CHATWORK_ACCOUNT_ID) or (member["account_id"] == DEBUG_NOTICE_CHATWORK_ACCOUNT_ID)
+
+    if is_debug_room and is_debug_member:
         if raw_command == "/status":
             log.info(f"/status コマンド検出: {member['name']}")
             chatwork_post(member["cw_token"], room_id, handle_status(member, room_id))

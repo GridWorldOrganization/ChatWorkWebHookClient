@@ -119,6 +119,7 @@ ClaudeWorkMulti/
 | `DEBUG_NOTICE_ENABLED` | `1` | デバッグ通知（1=有効, 0=無効） |
 | `DEBUG_NOTICE_CHATWORK_TOKEN` | — | デバッグ通知用ChatWork APIトークン |
 | `DEBUG_NOTICE_CHATWORK_ROOM_ID` | — | デバッグ通知先ルームID（コマンドもここで受付） |
+| `DEBUG_NOTICE_CHATWORK_ACCOUNT_ID` | — | デバッグ通知専用メンバーのアカウントID（このメンバー宛のコマンドのみ受付） |
 | `GOOGLE_EMAIL` | — | Google アカウント |
 | `GOOGLE_OAUTH_CLIENT_ID` | — | OAuth クライアント ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | — | OAuth クライアントシークレット |

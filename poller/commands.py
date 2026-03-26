@@ -245,10 +245,12 @@ def handle_system() -> str:
     lines.append(f"  マイドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else 'OFF'}")
     lines.append(f"  共有ドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_SHARED else 'OFF'}")
 
+    from poller.config import DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
     lines.append(f"\n■ デバッグ通知")
     lines.append(f"  DEBUG_NOTICE_ENABLED: {'ON' if DEBUG_NOTICE_ENABLED else 'OFF'}")
     lines.append(f"  CHATWORK_TOKEN: {'設定済' if DEBUG_NOTICE_CHATWORK_TOKEN else '未設定'}")
     lines.append(f"  CHATWORK_ROOM_ID: {DEBUG_NOTICE_CHATWORK_ROOM_ID if DEBUG_NOTICE_CHATWORK_ROOM_ID else '未設定'}")
+    lines.append(f"  CHATWORK_ACCOUNT_ID: {DEBUG_NOTICE_CHATWORK_ACCOUNT_ID if DEBUG_NOTICE_CHATWORK_ACCOUNT_ID else '未設定（全メンバー受付）'}")
 
     active_count = 0
     with state.session_lock:

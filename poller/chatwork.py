@@ -30,8 +30,10 @@ def chatwork_post(token: str, room_id: int | str, message: str) -> None:
         )
         if res.status_code == 200:
             log.info(f"ChatWork投稿成功: room={room_id}")
+        elif res.status_code == 403:
+            log.error(f"ChatWork投稿失敗: room={room_id} 権限エラー（読み取り専用ルームまたはトークン権限不足）")
         else:
-            log.error(f"ChatWork投稿失敗: {res.status_code} {res.text}")
+            log.error(f"ChatWork投稿失敗: room={room_id} status={res.status_code} {res.text}")
     except Exception as e:
         log.error(f"ChatWork投稿エラー: {e}")
 

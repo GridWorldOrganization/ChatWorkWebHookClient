@@ -63,6 +63,7 @@ CHATWORK_API_BASE: str = "https://api.chatwork.com/v2"
 DEBUG_NOTICE_ENABLED: bool = os.environ.get("DEBUG_NOTICE_ENABLED", "1") == "1"
 DEBUG_NOTICE_CHATWORK_TOKEN: str = os.environ.get("DEBUG_NOTICE_CHATWORK_TOKEN", "")
 DEBUG_NOTICE_CHATWORK_ROOM_ID: int = int(os.environ.get("DEBUG_NOTICE_CHATWORK_ROOM_ID", "0"))
+DEBUG_NOTICE_CHATWORK_ACCOUNT_ID: int = int(os.environ.get("DEBUG_NOTICE_CHATWORK_ACCOUNT_ID", "0"))
 
 # =============================================================================
 #  Google Workspace API
