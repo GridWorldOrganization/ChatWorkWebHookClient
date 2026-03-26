@@ -51,6 +51,7 @@ REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
 
 # --- ChatWork API ---
+CHATWORK_API_TIMEOUT = 30  # ChatWork API 呼び出しのタイムアウト秒
 CHATWORK_API_BASE = "https://api.chatwork.com/v2"
 CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
 CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
@@ -264,6 +265,7 @@ def chatwork_post(token, room_id, message):
             f"{CHATWORK_API_BASE}/rooms/{room_id}/messages",
             headers={"X-ChatWorkToken": token},
             data={"body": message},
+            timeout=CHATWORK_API_TIMEOUT,
         )
         if res.status_code == 200:
             log.info(f"ChatWork投稿成功: room={room_id}")
@@ -285,6 +287,7 @@ def get_sender_name(token, room_id, sender_account_id):
         res = requests.get(
             f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
             headers={"X-ChatWorkToken": token},
+            timeout=CHATWORK_API_TIMEOUT,
         )
         if res.status_code == 200:
             for m in res.json():
@@ -301,6 +304,7 @@ def get_message_info(token, room_id, message_id):
         res = requests.get(
             f"{CHATWORK_API_BASE}/rooms/{room_id}/messages/{message_id}",
             headers={"X-ChatWorkToken": token},
+            timeout=CHATWORK_API_TIMEOUT,
         )
         if res.status_code == 200:
             account = res.json().get("account", {})
@@ -320,6 +324,7 @@ def gather_room_context(token, room_id):
         res = requests.get(
             f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
             headers={"X-ChatWorkToken": token},
+            timeout=CHATWORK_API_TIMEOUT,
         )
         if res.status_code == 200:
             member_list = ", ".join(f"{m['name']}(ID:{m['account_id']})" for m in res.json())
@@ -331,6 +336,7 @@ def gather_room_context(token, room_id):
             f"{CHATWORK_API_BASE}/rooms/{room_id}/messages",
             headers={"X-ChatWorkToken": token},
             params={"force": 1},
+            timeout=CHATWORK_API_TIMEOUT,
         )
         if res.status_code == 200:
             recent = [
@@ -671,6 +677,7 @@ def handle_status_command(member, room_id):
             res = requests.get(
                 f"{CHATWORK_API_BASE}/rooms",
                 headers={"X-ChatWorkToken": member["cw_token"]},
+                timeout=CHATWORK_API_TIMEOUT,
             )
             if res.status_code == 200:
                 for r in res.json():
@@ -990,6 +997,7 @@ def process_message(body: dict):
             res = requests.get(
                 f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
                 headers={"X-ChatWorkToken": member["cw_token"]},
+                timeout=CHATWORK_API_TIMEOUT,
             )
             if res.status_code == 200:
                 others = [
