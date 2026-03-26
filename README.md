@@ -90,7 +90,9 @@ ClaudeWorkMulti/
 ├── windows_poller.py          # ポーラーメインスクリプト（Windows PC で実行）
 ├── start_poller.bat           # 起動スクリプト
 ├── setup_windows.bat          # 初回セットアップ
-├── check_claude_task.bat      # Claudeプロセスチェッカー
+├── check_claude_task.bat      # Claudeプロセスチェッカー（Native/npm判定）
+├── check_gws.bat              # Google Workspace API 接続テスト
+├── kill_zombie.bat            # ゾンビプロセス検出・削除ツール
 ├── config.env.example         # グローバル設定テンプレート
 ├── members/                   # AIメンバー設定
 │   ├── 00_common_rules.md     # 全メンバー共通ルール
@@ -140,6 +142,31 @@ ClaudeWorkMulti/
 - **安全停止** — Ctrl+C で処理中のメッセージ完了後に終了、子プロセス自動kill
 - **ルームホワイトリスト** — 許可ルーム以外はAI起動せず拒否ログ記録
 - **SQSポーリング切り替え** — ショート/ロングポーリングを設定で切り替え（コスト最適化）
+
+## ユーティリティツール
+
+| バッチ | 説明 |
+|--------|------|
+| `start_poller.bat` | ポーラー起動（多重起動チェック付き） |
+| `setup_windows.bat` | 初回セットアップ（依存パッケージ・AWS・Google API） |
+| `check_claude_task.bat` | 実行中のClaudeプロセス一覧表示（Native/npm判定） |
+| `check_gws.bat` | Google Workspace API 接続テスト（OAuth認証 + CRUD検証） |
+| `kill_zombie.bat` | ゾンビプロセス検出・削除（ポーラーが起動したプロセスのみ） |
+| `kill_zombie.bat --all` | 上記に加え、全Claudeプロセス（Native/npm）も表示・削除対象に含める |
+
+### kill_zombie.bat の使い方
+
+**通常モード**（ダブルクリック）: ポーラーが起動したプロセスのみ検出・削除
+
+```
+kill_zombie.bat
+```
+
+**--all モード**: ポーラー管轄外のClaude プロセス（手動起動のclaude.exe / node.exe 等）も一覧表示し、削除対象に含める
+
+```
+kill_zombie.bat --all
+```
 
 ## 必要な環境
 

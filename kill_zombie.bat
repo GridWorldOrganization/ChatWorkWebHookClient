@@ -7,7 +7,16 @@ echo ==========================================
 echo   Zombie Process Killer
 echo ==========================================
 echo.
-echo Poller that started processes only.
+
+set SHOW_ALL=0
+if /i "%~1"=="--all" set SHOW_ALL=1
+if /i "%~1"=="-a" set SHOW_ALL=1
+
+if !SHOW_ALL!==1 (
+    echo   Mode: ALL (poller + all claude processes)
+) else (
+    echo   Mode: POLLER ONLY (use --all to include all claude processes)
+)
 echo.
 
 set COUNT=0
@@ -44,6 +53,38 @@ for /f "tokens=2 delims=," %%P in ('wmic process where "name='python.exe'" get P
 )
 if !POLLER_COUNT!==0 echo   None.
 
+REM --- --all モード: 全 Claude プロセスも表示 ---
+if !SHOW_ALL!==1 (
+    set CLAUDE_COUNT=0
+
+    echo.
+    echo [3] All Claude processes - Native (claude.exe)
+    echo.
+    for /f "tokens=1,2 delims=," %%A in ('tasklist /FO CSV /NH 2^>nul ^| findstr /i "claude.exe"') do (
+        set /a COUNT+=1
+        set /a CLAUDE_COUNT+=1
+        set "PID_!COUNT!=%%~B"
+        echo   !COUNT!. %%~A  PID=%%~B  [Native]
+    )
+    if !CLAUDE_COUNT!==0 echo   None.
+
+    set NODE_COUNT=0
+    echo.
+    echo [4] All Claude processes - npm (node.exe)
+    echo.
+    for /f "tokens=2 delims=," %%P in ('wmic process where "name='node.exe'" get ProcessId /FORMAT:CSV 2^>nul ^| findstr /r "[0-9]"') do (
+        set "PID=%%P"
+        wmic process where "ProcessId=!PID!" get CommandLine /FORMAT:LIST 2>nul | findstr /i "claude" >nul
+        if not errorlevel 1 (
+            set /a COUNT+=1
+            set /a NODE_COUNT+=1
+            set "PID_!COUNT!=!PID!"
+            echo   !COUNT!. node.exe  PID=!PID!  [npm]
+        )
+    )
+    if !NODE_COUNT!==0 echo   None.
+)
+
 echo.
 echo ------------------------------------------
 
@@ -57,9 +98,9 @@ if !COUNT!==0 (
     goto :END
 )
 
-echo   Zombie processes: !COUNT!
+echo   Total: !COUNT! process(es) found.
 echo.
-echo   [a] Kill all zombies
+echo   [a] Kill all listed processes
 echo   [q] Quit
 echo.
 set /p CHOICE="Select: "
