@@ -140,3 +140,36 @@ ClaudeWorkMulti/
 - **安全停止** — Ctrl+C で処理中のメッセージ完了後に終了、子プロセス自動kill
 - **ルームホワイトリスト** — 許可ルーム以外はAI起動せず拒否ログ記録
 - **SQSポーリング切り替え** — ショート/ロングポーリングを設定で切り替え（コスト最適化）
+
+## 必要な環境
+
+### 必須
+
+| 項目 | 備考 |
+|------|------|
+| **Windows PC** | ポーラー実行環境（常時稼働） |
+| **Python 3.12+** | ポーラー本体の実行に必要 |
+| **AWS CLI v2** | SQS アクセス用（プロファイル設定） |
+| **AWS SQS キュー** | ChatWork → Lambda → SQS の構成が必要（[infra/README.md](infra/README.md) 参照） |
+| **ChatWork アカウント** | AIメンバー用アカウント（APIトークン発行が必要） |
+
+### AI 呼び出し（どちらか一方）
+
+| 方式 | 必要なもの |
+|------|-----------|
+| **Anthropic API 直接**（推奨） | Anthropic API キー（[console.anthropic.com](https://console.anthropic.com/)） |
+| **Claude Code CLI** | Node.js + Claude Code（`npm install -g @anthropic-ai/claude-code`） |
+
+### オプション
+
+| 項目 | 備考 |
+|------|------|
+| Google Workspace API | スプレッドシート連携用。OAuth クライアント ID/Secret が必要（[Google Cloud Console](https://console.cloud.google.com/)） |
+
+### Python パッケージ
+
+`setup_windows.bat` で自動インストールされます。
+
+```
+pip install boto3 requests anthropic google-api-python-client google-auth-httplib2 google-auth-oauthlib
+```
