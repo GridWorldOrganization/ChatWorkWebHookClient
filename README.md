@@ -1,9 +1,24 @@
 # ClaudeWorkMulti
 
+![Python](https://img.shields.io/badge/Python-3.12+-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
+![Claude](https://img.shields.io/badge/AI-Claude_(Anthropic)-orange)
+
+> **Multi-AI member auto-reply system for ChatWork, powered by Claude (Anthropic API / Claude Code CLI).**
+> Each AI member has its own persona, conversation mode, and room-specific settings.
+> Messages are received via AWS SQS and processed in parallel threads per member.
+
 ChatWork × Claude（Anthropic API / Claude Code）による複数AIメンバー自動返信システム。
 
 ChatWorkでメンバー宛にメッセージを送ると、各メンバーのペルソナに基づいてAI返信します。
 複数メンバーが並列で動作し、ルームごとの会話モードやルーム別口調に対応しています。
+
+## デモ
+
+<!-- TODO: スクリーンショットを挿入 -->
+<!-- ![Demo](docs/images/demo.png) -->
+<!-- ChatWork上でのAI返信の様子を貼る -->
 
 ## システム構成
 
@@ -34,12 +49,17 @@ ChatWork → API Gateway → Lambda → SQS → ポーラー(Win PC) → Claude 
 | [docs/architecture.md](docs/architecture.md) | 処理フロー・排他制御・クリーンアップ・ポーリング方式・URL自動検出 |
 | [docs/commands.md](docs/commands.md) | ChatWorkコマンド・会話モード・バッチツール一覧 |
 | [infra/README.md](infra/README.md) | AWSインフラ構築手順（SQS, Lambda, API Gateway, IAM, Webhook） |
+| [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | コントリビューションガイド |
 
 ## フォルダ構成
 
 ```
 ClaudeWorkMulti/
 ├── README.md                  # このファイル
+├── LICENSE                    # MIT License
+├── CHANGELOG.md               # 変更履歴
+├── CONTRIBUTING.md            # コントリビューションガイド
 ├── QUICKSTART.md              # クイックスタートガイド
 ├── windows_poller.py          # ポーラーメインスクリプト
 ├── check_gws.py               # Google Workspace API チェッカー
@@ -95,3 +115,11 @@ ClaudeWorkMulti/
 | `GOOGLE_OAUTH_CLIENT_SECRET` | — | OAuth クライアントシークレット |
 | `GOOGLE_DRIVE_INCLUDE_MY_DRIVE` | `0` | マイドライブ参照（0=しない, 1=する） |
 | `GOOGLE_DRIVE_INCLUDE_SHARED` | `1` | 共有ドライブ参照（0=しない, 1=する） |
+
+## License
+
+[MIT License](LICENSE)
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
