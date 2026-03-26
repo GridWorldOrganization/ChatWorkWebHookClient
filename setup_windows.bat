@@ -72,7 +72,17 @@ if errorlevel 1 (
     goto :END
 )
 call claude --version
-echo   OK
+where claude 2>nul | findstr /i ".exe" >nul
+if not errorlevel 1 (
+    echo   OK [Native]
+) else (
+    where claude 2>nul | findstr /i ".cmd" >nul
+    if not errorlevel 1 (
+        echo   OK [npm]
+    ) else (
+        echo   OK
+    )
+)
 echo.
 
 REM ===== Step 4: AWS CLI 確認 + インストール案内 =====
