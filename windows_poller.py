@@ -888,7 +888,7 @@ def handle_gws_command():
 
         # 書き込み
         sheets.spreadsheets().values().update(
-            spreadsheetId=sheet_id, range="Sheet1!A1:B2",
+            spreadsheetId=sheet_id, range="A1:B2",
             valueInputOption="RAW",
             body={"values": [["key", "value"], ["test", "ok"]]},
         ).execute()
@@ -896,7 +896,7 @@ def handle_gws_command():
 
         # 読み込み
         data = sheets.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range="Sheet1!A1:B2",
+            spreadsheetId=sheet_id, range="A1:B2",
         ).execute()
         vals = data.get("values", [])
         if vals == [["key", "value"], ["test", "ok"]]:
