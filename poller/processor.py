@@ -331,9 +331,9 @@ def process_message(body: dict[str, Any]) -> None:
             lines.append("[/info]")
             chatwork_post(debug_token, room_id, "\n".join(lines))
             return
-        talk_room_match = re.match(r'^/talk\s+(\d+)\s+(\d+)\s+(\d)$', raw_command)
+        talk_room_match = re.match(r'^/talk\s+(\d+)\s+(?:https?://www\.chatwork\.com/#!rid)?(\d+)\s+(\d)$', raw_command)
         if talk_room_match:
-            # /talk N ROOMID M: メンバーNのルームROOMID別モードをMに変更
+            # /talk N URL/ROOMID M: メンバーNのルーム別モードをMに変更
             mem_num = int(talk_room_match.group(1))
             target_room = talk_room_match.group(2)
             new_mode = int(talk_room_match.group(3))
