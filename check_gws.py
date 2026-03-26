@@ -87,6 +87,7 @@ def run_spreadsheet_test(creds):
     """テスト用スプレッドシートを作成→書き込み→読み込み→シート追加→削除して検証する"""
     from googleapiclient.discovery import build
 
+    # 参照設定に関わらず、CRUDテストは常にマイドライブで実行
     sheets = build("sheets", "v4", credentials=creds)
     drive = build("drive", "v3", credentials=creds)
     test_title = "_GWS_API_TEST_ (delete me)"

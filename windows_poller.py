@@ -880,7 +880,7 @@ def handle_gws_command():
     shared_label = "ON" if GOOGLE_DRIVE_INCLUDE_SHARED else "OFF"
     lines.append(f"参照範囲: マイドライブ={my_drive_label} / 共有ドライブ={shared_label}")
 
-    # スプレッドシート CRUD テスト
+    # スプレッドシート CRUD テスト（参照設定に関わらず、常にマイドライブで実行）
     test_title = "_GWS_API_TEST_ (delete me)"
     sheet_id = None
     results = []
