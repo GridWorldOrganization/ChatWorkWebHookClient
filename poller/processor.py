@@ -560,10 +560,8 @@ def process_message(body: dict[str, Any]) -> None:
     # --- AI 実行 ---
     ai_start_time = time.time()
     notify_error(
-        f"AI実行開始 [{member['name']}]",
-        f"送信者: {sender_name}\nルーム: {room_id}\n"
-        f"モード: {talk_info['name']}\n"
-        f"本文: {message[:150]}",
+        f"Claude起動 [{member['name']}]",
+        f"送信者: {sender_name} / ルーム: {room_id} / モード: {talk_info['name']}",
     )
     try:
         if member_key:
@@ -584,16 +582,6 @@ def process_message(body: dict[str, Any]) -> None:
             reply = _apply_reply_tag(reply, member["cw_token"], room_id, sender, message_id)
             chatwork_post(member["cw_token"], room_id, reply)
 
-            # デバッグ通知ルームにAI実行ログを投稿
-            notify_error(
-                f"AI実行完了 [{member['name']}]",
-                f"送信者: {sender_name}\nルーム: {room_id}\n"
-                f"モード: {talk_info['name']}\n"
-                f"応答時間: {ai_elapsed:.1f}秒\n"
-                f"本文: {message[:100]}\n"
-                f"返信: {raw_reply[:100]}",
-            )
-
             _save_chat_history(member_dir, room_id, sender_name, message, raw_reply, member["name"])
             if member_key:
                 with state.reply_time_lock:
@@ -605,27 +593,21 @@ def process_message(body: dict[str, Any]) -> None:
         elif result.returncode != 0:
             error_detail = result.error[:500] if result.error else "不明なエラー"
             log.error(f"{ai_mode_label()} エラー: {error_detail}")
-            notify_error(
-                f"{ai_mode_label()} 実行エラー [{member['name']}]",
-                f"exit code: {result.returncode}\nroom: {room_id}\nエラー: {error_detail}\nメッセージ: {message[:200]}",
-            )
+
         else:
             log.warning(f"{ai_mode_label()} の出力が空でした")
-            notify_error(
-                f"{ai_mode_label()} 出力なし [{member['name']}]",
-                f"AI が空の応答を返しました。\nroom: {room_id}\nメッセージ: {message[:200]}",
-            )
 
     except subprocess.TimeoutExpired:
-        notify_error(
-            f"{ai_mode_label()} タイムアウト [{member['name']}]",
-            f"AI が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}",
-        )
+        log.error(f"{ai_mode_label()} タイムアウト: {CLAUDE_TIMEOUT}秒 [{member['name']}]")
     except FileNotFoundError:
         from poller.config import CLAUDE_COMMAND
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
-        notify_error("Claude Code 未検出", f"claude コマンドが見つかりません。\nPATH設定を確認してください。")
     finally:
+        ai_elapsed = time.time() - ai_start_time
+        notify_error(
+            f"Claude終了 [{member['name']}]",
+            f"{ai_elapsed:.1f}秒 / ルーム: {room_id}",
+        )
         if member_key:
             with state.session_lock:
                 state.session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
