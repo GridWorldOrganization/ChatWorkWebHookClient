@@ -51,7 +51,8 @@ from poller.commands import (
     handle_session,
     handle_system,
     handle_bill,
-    handle_talk_status,
+    handle_talk_start,
+    handle_talk_session_reply,
     handle_talk_change,
     handle_gws,
 )
@@ -275,13 +276,30 @@ def process_message(body: dict[str, Any]) -> None:
                   or re.match(r'^/talk\s+\d', raw_command)
                   or re.match(r'^/status\s+\d+$', raw_command))
 
-    # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
-    if (is_command
-        and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
+    # デバッグルーム宛のメッセージかチェック（[To:] または [rp] タグ）
+    is_debug_msg = (
+        DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
         and DEBUG_NOTICE_CHATWORK_ROOM_ID
         and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
-        and f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message):
+        and (f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message
+             or f"[rp aid={DEBUG_NOTICE_CHATWORK_ACCOUNT_ID} " in message)
+    )
 
+    # /talk 対話セッション応答の検出（コマンド判定より先に処理）
+    if is_debug_msg and not is_command:
+        session_input = re.sub(
+            r'\[(To:\d+[^\]]*|rp aid=\d+ to=\d+-\d+)\][^\n]*\n?', '', message.strip()
+        ).strip()
+        if session_input:
+            with state.talk_session_lock:
+                reply = handle_talk_session_reply(session_input)
+            if reply:
+                log.info(f"/talk 対話セッション応答: input='{session_input}'")
+                chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, reply)
+                return
+
+    # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
+    if is_command and is_debug_msg:
         debug_token = DEBUG_NOTICE_CHATWORK_TOKEN
         log.info(f"デバッグコマンド '{raw_command}' 検出 (room={room_id})")
 
@@ -317,19 +335,11 @@ def process_message(body: dict[str, Any]) -> None:
         if raw_command == "/gws":
             chatwork_post(debug_token, room_id, handle_gws())
             return
-        # /talk: メンバー番号指定で会話モード表示・変更
+        # /talk: 対話型セッション開始
         if raw_command == "/talk":
-            # 全メンバーの現在のデフォルトモードを表示
-            from poller.config import load_talk_modes
-            lines = ["[info][title]/talk: 全メンバーモード一覧[/title]"]
-            for idx, (key, m) in enumerate(MEMBERS.items(), 1):
-                default_mode, _ = load_talk_modes(m["dir"])
-                mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
-                lines.append(f"  {idx}. {m['name']} → {default_mode}({mode_name})")
-            lines.append(f"\n変更: /talk [メンバー番号] [モード番号]")
-            lines.append(f"詳細: /talk [メンバー番号]")
-            lines.append("[/info]")
-            chatwork_post(debug_token, room_id, "\n".join(lines))
+            with state.talk_session_lock:
+                reply = handle_talk_start()
+            chatwork_post(debug_token, room_id, reply)
             return
         talk_room_match = re.match(r'^/talk\s+(\d+)\s+(?:https?://www\.chatwork\.com/#!rid)?(\d+)\s+(\d)$', raw_command)
         if talk_room_match:

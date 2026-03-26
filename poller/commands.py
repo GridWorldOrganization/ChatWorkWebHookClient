@@ -307,35 +307,13 @@ def handle_bill() -> str:
 
 
 # =============================================================================
-#  /talk
+#  /talk（対話型セッション）
 # =============================================================================
 
-def handle_talk_status(member: dict[str, Any], room_id: str) -> str:
-    """/talk: このルームの現在の会話モードと一覧を表示する"""
-    default_mode, room_modes = load_talk_modes(member["dir"])
-    current_mode = room_modes.get(str(room_id), default_mode)
-    is_default = str(room_id) not in room_modes
-    current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
-
-    lines = [f"[info][title]/talk: {member['name']}[/title]"]
-    source = "デフォルト" if is_default else "ルーム別設定"
-    lines.append(f"このルームの会話モード: {current_mode}（{current_name}）[{source}]")
-    lines.append(f"\n設定可能なモード:")
-    for mode_id, mode_info in sorted(TALK_MODES.items()):
-        marker = " ← 現在" if mode_id == current_mode else ""
-        lines.append(f"  /talk {mode_id} : {mode_info['name']}{marker}")
-    lines.append("[/info]")
-    return "\n".join(lines)
-
-
-def handle_talk_change(member: dict[str, Any], room_id: str, new_mode: int) -> str:
-    """/talk N: 該当ルームの会話モードを変更し、mode.env を更新する"""
-    if new_mode not in TALK_MODES:
-        return f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。"
-
-    mode_env_path = os.path.join(member["dir"], "mode.env")
+def _write_mode_env(member_dir: str, room_id: str, new_mode: int) -> str | None:
+    """mode.env にルーム別設定を書き込む。エラー時はメッセージを返す"""
+    mode_env_path = os.path.join(member_dir, "mode.env")
     target_key = f"TALK_MODE={room_id}:"
-
     lines: list[str] = []
     updated = False
     if os.path.exists(mode_env_path):
@@ -350,17 +328,245 @@ def handle_talk_change(member: dict[str, Any], room_id: str, new_mode: int) -> s
         except Exception as e:
             log.error(f"mode.env 読み込みエラー: {e}")
             return f"mode.env の読み込みに失敗しました: {e}"
-
     if not updated:
         lines.append(f"TALK_MODE={room_id}:{new_mode}\n")
-
     try:
         with open(mode_env_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
     except Exception as e:
         log.error(f"mode.env 書き込みエラー: {e}")
         return f"mode.env の書き込みに失敗しました: {e}"
+    return None
 
+
+def _delete_room_mode(member_dir: str, room_id: str) -> str | None:
+    """mode.env からルーム別設定を削除する。エラー時はメッセージを返す"""
+    mode_env_path = os.path.join(member_dir, "mode.env")
+    target_key = f"TALK_MODE={room_id}:"
+    if not os.path.exists(mode_env_path):
+        return None
+    try:
+        lines: list[str] = []
+        with open(mode_env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip().startswith(target_key):
+                    lines.append(line)
+        with open(mode_env_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:
+        log.error(f"mode.env 削除エラー: {e}")
+        return f"mode.env の操作に失敗しました: {e}"
+    return None
+
+
+def _mode_options_str() -> str:
+    """会話モード選択肢の文字列を返す"""
+    return ", ".join(f"{k}:{v['name']}" for k, v in sorted(TALK_MODES.items()))
+
+
+def _extract_room_id(text: str) -> str:
+    """テキストからルームIDを抽出する（ChatWork URL対応）"""
+    url_match = re.match(r'https?://www\.chatwork\.com/#!rid(\d+)', text.strip())
+    if url_match:
+        return url_match.group(1)
+    return text.strip()
+
+
+def handle_talk_start() -> str:
+    """/talk: 対話型セッションを開始する"""
+    lines = ["誰の会話モードを確認しますか？"]
+    for idx, (key, m) in enumerate(MEMBERS.items(), 1):
+        default_mode, _ = load_talk_modes(m["dir"])
+        mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
+        lines.append(f"  {idx}: {m['name']}（現在: {default_mode} {mode_name}）")
+    lines.append("\n番号を返信してください。")
+    state.talk_session = {"state": "select_member"}
+    return "\n".join(lines)
+
+
+def handle_talk_session_reply(raw_input: str) -> str | None:
+    """対話型 /talk セッションの応答を処理する。セッション外なら None を返す"""
+    session = state.talk_session
+    if not session:
+        return None
+
+    current_state = session.get("state", "")
+
+    # --- メンバー選択 ---
+    if current_state == "select_member":
+        try:
+            num = int(raw_input)
+        except ValueError:
+            state.talk_session = {}
+            return "キャンセルしました。"
+
+        member_list = list(MEMBERS.items())
+        if num < 1 or num > len(member_list):
+            return f"無効な番号です。1〜{len(member_list)} を入力してください。"
+
+        member_key, member = member_list[num - 1]
+        default_mode, room_modes = load_talk_modes(member["dir"])
+        default_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
+
+        lines = [f"[info][title]{num}:{member['name']}の会話モード[/title]"]
+        lines.append(f"デフォルト: {default_mode}（{default_name}）")
+        if room_modes:
+            lines.append(f"\nルーム別設定:")
+            for rid, mode in sorted(room_modes.items()):
+                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+        else:
+            lines.append(f"ルーム別設定: なし")
+        lines.append(f"\n1: ルーム別会話設定追加")
+        lines.append(f"2: ルーム別会話設定変更")
+        lines.append(f"3: ルーム別会話設定削除")
+        lines.append(f"\n番号を返信してください。[/info]")
+
+        state.talk_session = {
+            "state": "select_action",
+            "member_key": member_key,
+            "member_num": num,
+        }
+        return "\n".join(lines)
+
+    # --- アクション選択 ---
+    if current_state == "select_action":
+        try:
+            action = int(raw_input)
+        except ValueError:
+            state.talk_session = {}
+            return "キャンセルしました。"
+
+        member_key = session["member_key"]
+        member = MEMBERS[member_key]
+
+        if action == 1:
+            state.talk_session["state"] = "add_room_id"
+            return "追加するルームIDを返信してください。"
+
+        if action == 2:
+            _, room_modes = load_talk_modes(member["dir"])
+            if not room_modes:
+                state.talk_session = {}
+                return "ルーム別設定がありません。先に追加してください。"
+            lines = ["変更するルームIDを返信してください。"]
+            for rid, mode in sorted(room_modes.items()):
+                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+            state.talk_session["state"] = "change_room_id"
+            return "\n".join(lines)
+
+        if action == 3:
+            _, room_modes = load_talk_modes(member["dir"])
+            if not room_modes:
+                state.talk_session = {}
+                return "ルーム別設定がありません。"
+            lines = ["削除するルームIDを返信してください。"]
+            for rid, mode in sorted(room_modes.items()):
+                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+            state.talk_session["state"] = "delete_room_id"
+            return "\n".join(lines)
+
+        return "1〜3の番号を入力してください。"
+
+    # --- 追加: ルームID入力 ---
+    if current_state == "add_room_id":
+        room_id = _extract_room_id(raw_input)
+        if not room_id.isdigit():
+            return "ルームIDは数字で入力してください。"
+        state.talk_session["target_room_id"] = room_id
+        state.talk_session["state"] = "add_room_mode"
+        return f"ルームID {room_id} の会話モードを返信してください（{_mode_options_str()}）"
+
+    # --- 追加: モード入力 ---
+    if current_state == "add_room_mode":
+        try:
+            new_mode = int(raw_input)
+        except ValueError:
+            return f"0〜{max(TALK_MODES.keys())} の数字を入力してください。"
+        if new_mode not in TALK_MODES:
+            return f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。"
+
+        member = MEMBERS[session["member_key"]]
+        target_room = session["target_room_id"]
+        err = _write_mode_env(member["dir"], target_room, new_mode)
+        state.talk_session = {}
+        if err:
+            return err
+        mode_name = TALK_MODES[new_mode]["name"]
+        log.info(f"/talk 対話: {member['name']} room={target_room} 追加 → {new_mode}({mode_name})")
+        return f"ルーム別会話設定を追加しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+
+    # --- 変更: ルームID入力 ---
+    if current_state == "change_room_id":
+        room_id = _extract_room_id(raw_input)
+        member = MEMBERS[session["member_key"]]
+        _, room_modes = load_talk_modes(member["dir"])
+        if room_id not in room_modes:
+            return f"ルームID {room_id} のルーム別設定はありません。正しいルームIDを入力してください。"
+        current_mode = room_modes[room_id]
+        current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
+        state.talk_session["target_room_id"] = room_id
+        state.talk_session["state"] = "change_room_mode"
+        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。\n変更する会話モードを返信してください（{_mode_options_str()}）"
+
+    # --- 変更: モード入力 ---
+    if current_state == "change_room_mode":
+        try:
+            new_mode = int(raw_input)
+        except ValueError:
+            return f"0〜{max(TALK_MODES.keys())} の数字を入力してください。"
+        if new_mode not in TALK_MODES:
+            return f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。"
+
+        member = MEMBERS[session["member_key"]]
+        target_room = session["target_room_id"]
+        err = _write_mode_env(member["dir"], target_room, new_mode)
+        state.talk_session = {}
+        if err:
+            return err
+        mode_name = TALK_MODES[new_mode]["name"]
+        log.info(f"/talk 対話: {member['name']} room={target_room} 変更 → {new_mode}({mode_name})")
+        return f"ルーム別会話設定を変更しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+
+    # --- 削除: ルームID入力 ---
+    if current_state == "delete_room_id":
+        room_id = _extract_room_id(raw_input)
+        member = MEMBERS[session["member_key"]]
+        _, room_modes = load_talk_modes(member["dir"])
+        if room_id not in room_modes:
+            state.talk_session = {}
+            return f"ルームID {room_id} のルーム別設定はありません。"
+        current_mode = room_modes[room_id]
+        current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
+        state.talk_session["target_room_id"] = room_id
+        state.talk_session["state"] = "delete_confirm"
+        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。削除しますか？（はい/いいえ）"
+
+    # --- 削除: 確認 ---
+    if current_state == "delete_confirm":
+        if raw_input.strip() in ("はい", "yes", "y"):
+            member = MEMBERS[session["member_key"]]
+            target_room = session["target_room_id"]
+            err = _delete_room_mode(member["dir"], target_room)
+            state.talk_session = {}
+            if err:
+                return err
+            log.info(f"/talk 対話: {member['name']} room={target_room} 削除")
+            return f"削除しました。ルームID {target_room} の会話モードはデフォルトとなります。"
+        state.talk_session = {}
+        return "キャンセルしました。"
+
+    # 不明な状態 → リセット
+    state.talk_session = {}
+    return None
+
+
+def handle_talk_change(member: dict[str, Any], room_id: str, new_mode: int) -> str:
+    """/talk N URL M: ルーム別の会話モードを変更する（ショートカット用）"""
+    if new_mode not in TALK_MODES:
+        return f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。"
+    err = _write_mode_env(member["dir"], room_id, new_mode)
+    if err:
+        return err
     mode_name = TALK_MODES[new_mode]["name"]
     log.info(f"/talk コマンド: {member['name']} room={room_id} → モード{new_mode}({mode_name})")
     return f"[info]会話モードを {new_mode}（{mode_name}）に変更しました。[/info]"
