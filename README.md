@@ -18,8 +18,8 @@ ChatWork → API Gateway → Lambda → SQS → ポーラー(Win PC) → Anthrop
 
 | 設定 | 方式 | 特徴 |
 |------|------|------|
+| `USE_DIRECT_API=0`（デフォルト） | **Claude Code CLI** | `claude -p` コマンドを subprocess で実行。CLAUDE.md やツール連携が必要な場合に使用 |
 | `USE_DIRECT_API=1` | **Anthropic API 直接呼び出し** | Python `anthropic` ライブラリで Messages API を直接呼び出し。高速だが従量課金（APIキー必要） |
-| `USE_DIRECT_API=0` | **Claude Code CLI** | `claude -p` コマンドを subprocess で実行する従来方式。CLAUDE.md やツール連携が必要な場合に使用 |
 
 ### 必要な設定
 
@@ -118,7 +118,7 @@ ClaudeWorkMulti/
 | `DEBUG_NOTICE_ENABLED` | — | `1` | デバッグ通知の有効/無効（1=有効, 0=無効） |
 | `DEBUG_NOTICE_CHATWORK_TOKEN` | — | — | デバッグ通知用ChatWork APIトークン |
 | `DEBUG_NOTICE_CHATWORK_ROOM_ID` | — | — | デバッグ通知先ChatWorkルームID（コマンドもこのルームで受付） |
-| `USE_DIRECT_API` | — | `1` | AI呼び出し方式（1=API直接, 0=CLI） |
+| `USE_DIRECT_API` | — | `0` | AI呼び出し方式（0=Claude Code CLI, 1=API直接・従量課金） |
 | `ANTHROPIC_API_KEY` | ※ | — | Anthropic APIキー（※ `USE_DIRECT_API=1` 時は必須） |
 | `CLAUDE_MODEL` | — | `claude-haiku-4-5` | 使用モデル |
 | `CLAUDE_COMMAND` | — | `claude` | Claude Code CLIパス（`USE_DIRECT_API=0` 時のみ） |
