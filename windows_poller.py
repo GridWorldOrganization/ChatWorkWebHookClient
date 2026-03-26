@@ -38,7 +38,7 @@ SQS_WAIT_TIME_SECONDS = max(0, min(20, int(os.environ.get("SQS_WAIT_TIME_SECONDS
 POLL_INTERVAL = max(0.1, min(10.0, float(os.environ.get("POLL_INTERVAL", "0.5"))))
 
 # --- AI 呼び出し ---
-USE_DIRECT_API = os.environ.get("USE_DIRECT_API", "1") == "1"
+USE_DIRECT_API = os.environ.get("USE_DIRECT_API", "0") == "1"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
