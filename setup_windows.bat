@@ -19,7 +19,7 @@ echo config.env loaded.
 echo.
 
 REM ===== Step 1: Python確認 =====
-echo [1/5] Python 確認中...
+echo [1/6] Python check...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python がインストールされていません
@@ -35,13 +35,13 @@ echo   OK
 echo.
 
 REM ===== Step 2: pip パッケージインストール =====
-echo [2/5] boto3, requests, anthropic インストール中...
+echo [2/6] pip install boto3, requests, anthropic...
 call pip install boto3 requests anthropic
 echo   OK
 echo.
 
 REM ===== Step 3: Claude Code 確認 =====
-echo [3/5] Claude Code 確認中...
+echo [3/6] Claude Code check...
 call claude --version >nul 2>&1
 if errorlevel 1 (
     echo [WARN] claude コマンドが見つかりません
@@ -65,7 +65,7 @@ echo   OK
 echo.
 
 REM ===== Step 4: AWS CLI 確認 + インストール案内 =====
-echo [4/5] AWS CLI 確認中...
+echo [4/6] AWS CLI check...
 call aws --version >nul 2>&1
 if errorlevel 1 (
     echo [WARN] AWS CLI がインストールされていません
@@ -86,7 +86,7 @@ echo   OK
 echo.
 
 REM ===== Step 5: AWS プロファイル設定 =====
-echo [5/5] AWS profile setup...
+echo [5/6] AWS profile setup...
 if "%AWS_ACCESS_KEY_ID%"=="" if "%AWS_SECRET_ACCESS_KEY%"=="" goto :SKIP_AWS_KEYS
 call aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
 call aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
@@ -100,14 +100,28 @@ echo          Otherwise: aws configure --profile chatwork-webhook
 :AFTER_AWS_KEYS
 echo.
 
-echo === セットアップ完了 ===
+REM ===== Step 6: Google Workspace CLI 確認 =====
+echo [6/6] Google Workspace CLI check...
+gws --version >nul 2>&1
+if errorlevel 1 (
+    echo   [SKIP] gws command not found
+    echo          Optional. Install: go install github.com/googleworkspace/cli/cmd/gws@latest
+    echo          https://github.com/googleworkspace/cli
+) else (
+    gws --version
+    echo   OK
+)
 echo.
-echo 全チェック結果:
+
+echo === Setup Complete ===
+echo.
+echo Results:
 echo   Python:      OK
 echo   pip:         OK
 echo   Claude Code: OK
 echo   AWS CLI:     OK
-echo   AWSプロファイル: OK
+echo   AWS Profile: OK
+echo   GWS CLI:     optional
 echo.
 echo 起動方法: start_poller.bat をダブルクリック
 
