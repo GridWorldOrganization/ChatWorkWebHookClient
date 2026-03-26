@@ -6,3 +6,4 @@ desktop.ini
 config.env
 .claude_pids
 google_token.json
+api_usage.json

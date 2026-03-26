@@ -474,6 +474,57 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
 #  AI 実行（Anthropic API 直接 / Claude Code CLI）
 # =============================================================================
 
+# モデル別料金（USD / 1M tokens）
+_MODEL_PRICING = {
+    "claude-haiku-4-5": {"input": 0.80, "output": 4.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+    "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+}
+_USAGE_FILE = os.path.join(SCRIPT_DIR, "api_usage.json")
+_usage_lock = threading.Lock()
+
+
+def _record_usage(model, input_tokens, output_tokens):
+    """API 使用量を月別・モデル別に記録する"""
+    month_key = datetime.now().strftime("%Y-%m")
+    with _usage_lock:
+        data = {}
+        if os.path.exists(_USAGE_FILE):
+            try:
+                with open(_USAGE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+
+        if month_key not in data:
+            data[month_key] = {}
+        if model not in data[month_key]:
+            data[month_key][model] = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+
+        data[month_key][model]["input_tokens"] += input_tokens
+        data[month_key][model]["output_tokens"] += output_tokens
+        data[month_key][model]["calls"] += 1
+
+        try:
+            with open(_USAGE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            log.error(f"使用量記録エラー: {e}")
+
+
+def _get_monthly_usage():
+    """当月の使用量と概算料金を返す"""
+    month_key = datetime.now().strftime("%Y-%m")
+    if not os.path.exists(_USAGE_FILE):
+        return month_key, {}
+    try:
+        with open(_USAGE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return month_key, {}
+    return month_key, data.get(month_key, {})
+
+
 def _ai_mode_label():
     """現在の AI 呼び出し方式のラベルを返す（ログ・エラーメッセージ用）"""
     return "Anthropic API" if USE_DIRECT_API else "Claude Code"
@@ -497,7 +548,11 @@ def run_claude_direct_api(prompt, member_name):
         )
         elapsed = time.time() - start_time
         reply = response.content[0].text if response.content else ""
-        log.info(f"<<< {_ai_mode_label()} 実行完了 [{member_name}] ({elapsed:.1f}秒)")
+        in_tok = response.usage.input_tokens if response.usage else 0
+        out_tok = response.usage.output_tokens if response.usage else 0
+        log.info(f"<<< {_ai_mode_label()} 実行完了 [{member_name}] ({elapsed:.1f}秒)"
+                 f" tokens: in={in_tok} out={out_tok}")
+        _record_usage(CLAUDE_MODEL, in_tok, out_tok)
         return subprocess.CompletedProcess(["anthropic-api"], 0, reply, "")
 
     except anthropic.APITimeoutError:
@@ -825,6 +880,44 @@ def handle_session_command(room_id):
             else:
                 lines.append(f"  {member['name']}: 停止中")
     lines.append(f"\n  グローバル設定: model={CLAUDE_MODEL} timeout={CLAUDE_TIMEOUT}秒")
+    lines.append("[/info]")
+    return "\n".join(lines)
+
+
+def handle_bill_command():
+    """/bill: 当月の Anthropic API 使用量と概算料金を表示する"""
+    month_key, usage = _get_monthly_usage()
+    lines = [f"[info][title]/bill: {month_key} API使用量[/title]"]
+
+    if not usage:
+        lines.append("当月のAPI使用実績はありません。")
+        if not USE_DIRECT_API:
+            lines.append("（CLI モードではトークン数を記録できません）")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    total_cost = 0.0
+    total_calls = 0
+    for model, stats in sorted(usage.items()):
+        in_tok = stats["input_tokens"]
+        out_tok = stats["output_tokens"]
+        calls = stats["calls"]
+        total_calls += calls
+        pricing = _MODEL_PRICING.get(model, {"input": 0, "output": 0})
+        cost_in = in_tok / 1_000_000 * pricing["input"]
+        cost_out = out_tok / 1_000_000 * pricing["output"]
+        cost = cost_in + cost_out
+        total_cost += cost
+
+        lines.append(f"■ {model}")
+        lines.append(f"  呼出回数: {calls}回")
+        lines.append(f"  入力: {in_tok:,} tokens (${cost_in:.4f})")
+        lines.append(f"  出力: {out_tok:,} tokens (${cost_out:.4f})")
+        lines.append(f"  小計: ${cost:.4f}")
+        lines.append("")
+
+    lines.append(f"合計: {total_calls}回 / ${total_cost:.4f}")
+    lines.append(f"（公開単価による概算。実際の請求額とは異なる場合があります）")
     lines.append("[/info]")
     return "\n".join(lines)
 
@@ -1321,6 +1414,12 @@ def process_message(body: dict):
         new_mode = int(talk_match.group(1))
         log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
         chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
+        return
+
+    # /bill: API使用量・料金表示
+    if raw_command == "/bill":
+        log.info(f"/bill コマンド検出: {member['name']} room={room_id}")
+        chatwork_post(member["cw_token"], room_id, handle_bill_command())
         return
 
     # /gws: Google Workspace API 接続テスト
