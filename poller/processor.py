@@ -25,6 +25,7 @@ from poller.config import (
     CLAUDE_TIMEOUT,
     DEBUG_NOTICE_CHATWORK_ACCOUNT_ID,
     DEBUG_NOTICE_CHATWORK_ROOM_ID,
+    DEBUG_NOTICE_CHATWORK_TOKEN,
     FOLLOWUP_KEYWORDS,
     FOLLOWUP_WAIT_SECONDS,
     MAX_AI_CONVERSATION_TURNS,
@@ -267,6 +268,50 @@ def process_message(body: dict[str, Any]) -> None:
     event_type = body.get("webhook_event_type", "")
     timestamp = body.get("timestamp", "")
 
+    # --- コマンド判定（デバッグ専用アカウント宛 → MEMBERS 外でも処理）---
+    raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
+    _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
+    is_command = raw_command in _COMMAND_KEYWORDS or re.match(r'^/talk\s+\d$', raw_command)
+
+    # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
+    if (is_command
+        and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
+        and DEBUG_NOTICE_CHATWORK_ROOM_ID
+        and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
+        and f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message):
+
+        debug_token = DEBUG_NOTICE_CHATWORK_TOKEN
+        log.info(f"デバッグコマンド '{raw_command}' 検出 (room={room_id})")
+
+        if raw_command == "/status":
+            # /status は全メンバーの概要を返す
+            lines = ["[info][title]/status: 全メンバー概要[/title]"]
+            for key, m in MEMBERS.items():
+                lines.append(f"  {m['name']} ({key}) account_id={m['account_id']}")
+            lines.append("[/info]")
+            chatwork_post(debug_token, room_id, "\n".join(lines))
+            return
+        if raw_command == "/session":
+            chatwork_post(debug_token, room_id, handle_session(room_id))
+            return
+        if raw_command == "/sysinfo":
+            chatwork_post(debug_token, room_id, handle_system())
+            return
+        if raw_command == "/bill":
+            chatwork_post(debug_token, room_id, handle_bill())
+            return
+        if raw_command == "/gws":
+            chatwork_post(debug_token, room_id, handle_gws())
+            return
+        # /talk はメンバー固有なのでデバッグアカウントでは非対応
+        log.info(f"デバッグアカウントでは非対応のコマンド: {raw_command}")
+        return
+
+    # コマンドが他メンバーに送られた場合は無視（AIにも渡さない）
+    if is_command and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID:
+        log.info(f"コマンド '{raw_command}' をデバッグ専用メンバー以外が受信 → 無視")
+        return
+
     # --- 宛先メンバー特定 ---
     member = find_target_member(body)
     if not member:
@@ -287,51 +332,6 @@ def process_message(body: dict[str, Any]) -> None:
     if str(sender) == str(member["account_id"]):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
-
-    # --- コマンド判定（指定ルーム + 指定メンバー宛のみ）---
-    raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
-    _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
-    is_command = raw_command in _COMMAND_KEYWORDS or re.match(r'^/talk\s+\d$', raw_command)
-
-    # コマンドが指定メンバー以外に送られた場合は無視（AIにも渡さない）
-    if is_command and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID and member["account_id"] != DEBUG_NOTICE_CHATWORK_ACCOUNT_ID:
-        log.info(f"コマンド '{raw_command}' をデバッグ専用メンバー以外({member['name']})が受信 → 無視")
-        return
-
-    is_debug_room = DEBUG_NOTICE_CHATWORK_ROOM_ID and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
-    is_debug_member = (not DEBUG_NOTICE_CHATWORK_ACCOUNT_ID) or (member["account_id"] == DEBUG_NOTICE_CHATWORK_ACCOUNT_ID)
-
-    if is_debug_room and is_debug_member:
-        if raw_command == "/status":
-            log.info(f"/status コマンド検出: {member['name']}")
-            chatwork_post(member["cw_token"], room_id, handle_status(member, room_id))
-            return
-        if raw_command == "/session":
-            log.info("/session コマンド検出")
-            chatwork_post(member["cw_token"], room_id, handle_session(room_id))
-            return
-        if raw_command == "/talk":
-            log.info(f"/talk コマンド検出（状態表示）: {member['name']} room={room_id}")
-            chatwork_post(member["cw_token"], room_id, handle_talk_status(member, room_id))
-            return
-        talk_match = re.match(r'^/talk\s+(\d)$', raw_command)
-        if talk_match:
-            new_mode = int(talk_match.group(1))
-            log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
-            chatwork_post(member["cw_token"], room_id, handle_talk_change(member, room_id, new_mode))
-            return
-        if raw_command == "/sysinfo":
-            log.info(f"/sysinfo コマンド検出: {member['name']} room={room_id}")
-            chatwork_post(member["cw_token"], room_id, handle_system())
-            return
-        if raw_command == "/bill":
-            log.info(f"/bill コマンド検出: {member['name']} room={room_id}")
-            chatwork_post(member["cw_token"], room_id, handle_bill())
-            return
-        if raw_command == "/gws":
-            log.info(f"/gws コマンド検出: {member['name']} room={room_id}")
-            chatwork_post(member["cw_token"], room_id, handle_gws())
-            return
 
     # --- ルームホワイトリスト判定 ---
     allowed = member.get("allowed_rooms", set())
