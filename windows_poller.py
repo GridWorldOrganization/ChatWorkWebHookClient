@@ -56,9 +56,14 @@ CHATWORK_API_BASE = "https://api.chatwork.com/v2"
 CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
 CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
 
-# --- Google Drive 参照範囲 ---
+# --- Google Workspace API ---
 GOOGLE_DRIVE_INCLUDE_MY_DRIVE = os.environ.get("GOOGLE_DRIVE_INCLUDE_MY_DRIVE", "0") == "1"
 GOOGLE_DRIVE_INCLUDE_SHARED = os.environ.get("GOOGLE_DRIVE_INCLUDE_SHARED", "1") == "1"
+GOOGLE_API_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/presentations.readonly",
+]
 
 # --- 雑談フィルタキーワード（モード0: ログモード用）---
 CASUAL_CHAT_KEYWORDS = [
@@ -956,8 +961,7 @@ def handle_gws_command():
 
     # 認証
     try:
-        scopes = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
-        creds = Credentials.from_authorized_user_file(token_path, scopes)
+        creds = Credentials.from_authorized_user_file(token_path, GOOGLE_API_SCOPES)
         if creds.expired and creds.refresh_token:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
@@ -1146,8 +1150,7 @@ def _fetch_google_content(file_id, file_type):
         return None
 
     try:
-        scopes = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/spreadsheets.readonly"]
-        creds = Credentials.from_authorized_user_file(token_path, scopes)
+        creds = Credentials.from_authorized_user_file(token_path, GOOGLE_API_SCOPES)
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
     except Exception as e:

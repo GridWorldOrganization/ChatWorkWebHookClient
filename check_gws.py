@@ -18,6 +18,7 @@ TOKEN_PATH = os.path.join(SCRIPT_DIR, "google_token.json")
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/presentations.readonly",
 ]
 
 
