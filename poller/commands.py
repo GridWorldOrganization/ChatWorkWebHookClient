@@ -52,6 +52,26 @@ log = logging.getLogger(__name__)
 
 
 # =============================================================================
+#  /help
+# =============================================================================
+
+def handle_help() -> str:
+    """/help: コマンド一覧を表示する"""
+    lines = [
+        "[info][title]/help[/title]",
+        "/help — コマンド一覧",
+        "/status — メンバー一覧 / /status N — 詳細",
+        "/talk — 会話モード設定（対話型）",
+        "/session — AI実行状態",
+        "/sysinfo — システム情報",
+        "/bill — API使用量",
+        "/gws — Google APIテスト",
+        "[/info]",
+    ]
+    return "\n".join(lines)
+
+
+# =============================================================================
 #  /status
 # =============================================================================
 
@@ -364,6 +384,32 @@ def _mode_options_str() -> str:
     return ", ".join(f"{k}:{v['name']}" for k, v in sorted(TALK_MODES.items()))
 
 
+def _get_room_names(cw_token: str) -> dict[str, str]:
+    """ChatWork API でルーム名一覧を取得する。{ルームID: ルーム名}"""
+    if not cw_token:
+        return {}
+    try:
+        res = requests.get(
+            f"{CHATWORK_API_BASE}/rooms",
+            headers={"X-ChatWorkToken": cw_token},
+            timeout=CHATWORK_API_TIMEOUT,
+        )
+        if res.status_code == 200:
+            return {str(r["room_id"]): r.get("name", "") for r in res.json()}
+    except Exception:
+        pass
+    return {}
+
+
+def _room_display(rid: str, mode: int, room_names: dict[str, str]) -> str:
+    """ルーム表示用の文字列を返す（ルーム名付き）"""
+    rname = room_names.get(rid, "")
+    mode_name = TALK_MODES.get(mode, {}).get("name", "不明")
+    if rname:
+        return f"  {rname}({rid}): {mode}（{mode_name}）"
+    return f"  {rid}: {mode}（{mode_name}）"
+
+
 def _extract_room_id(text: str) -> str:
     """テキストからルームIDを抽出する（ChatWork URL対応）"""
     url_match = re.match(r'https?://www\.chatwork\.com/#!rid(\d+)', text.strip())
@@ -407,13 +453,14 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         member_key, member = member_list[num - 1]
         default_mode, room_modes = load_talk_modes(member["dir"])
         default_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
+        room_names = _get_room_names(member.get("cw_token", ""))
 
         lines = [f"[info][title]{num}:{member['name']}の会話モード[/title]"]
         lines.append(f"デフォルト: {default_mode}（{default_name}）")
         if room_modes:
             lines.append(f"\nルーム別設定:")
             for rid, mode in sorted(room_modes.items()):
-                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+                lines.append(_room_display(rid, mode, room_names))
         else:
             lines.append(f"ルーム別設定: なし")
         lines.append(f"\n1: ルーム別会話設定追加")
@@ -448,9 +495,10 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
             if not room_modes:
                 state.talk_session = {}
                 return "ルーム別設定がありません。先に追加してください。"
+            room_names = _get_room_names(member.get("cw_token", ""))
             lines = ["変更するルームIDを返信してください。"]
             for rid, mode in sorted(room_modes.items()):
-                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+                lines.append(_room_display(rid, mode, room_names))
             state.talk_session["state"] = "change_room_id"
             return "\n".join(lines)
 
@@ -459,9 +507,10 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
             if not room_modes:
                 state.talk_session = {}
                 return "ルーム別設定がありません。"
+            room_names = _get_room_names(member.get("cw_token", ""))
             lines = ["削除するルームIDを返信してください。"]
             for rid, mode in sorted(room_modes.items()):
-                lines.append(f"  {rid}: {mode}（{TALK_MODES.get(mode, {}).get('name', '不明')}）")
+                lines.append(_room_display(rid, mode, room_names))
             state.talk_session["state"] = "delete_room_id"
             return "\n".join(lines)
 
@@ -491,9 +540,10 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         state.talk_session = {}
         if err:
             return err
+        member_num = session.get("member_num", "")
         mode_name = TALK_MODES[new_mode]["name"]
         log.info(f"/talk 対話: {member['name']} room={target_room} 追加 → {new_mode}({mode_name})")
-        return f"ルーム別会話設定を追加しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+        return f"{member_num}:{member['name']}のルーム別会話設定を追加しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
 
     # --- 変更: ルームID入力 ---
     if current_state == "change_room_id":
@@ -523,9 +573,10 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         state.talk_session = {}
         if err:
             return err
+        member_num = session.get("member_num", "")
         mode_name = TALK_MODES[new_mode]["name"]
         log.info(f"/talk 対話: {member['name']} room={target_room} 変更 → {new_mode}({mode_name})")
-        return f"ルーム別会話設定を変更しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
+        return f"{member_num}:{member['name']}のルーム別会話設定を変更しました。\nルームID {target_room} → {new_mode}（{mode_name}）"
 
     # --- 削除: ルームID入力 ---
     if current_state == "delete_room_id":
@@ -539,19 +590,20 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
         state.talk_session["target_room_id"] = room_id
         state.talk_session["state"] = "delete_confirm"
-        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。削除しますか？（はい/いいえ）"
+        return f"ルームID {room_id} の会話モードは {current_mode}（{current_name}）です。削除しますか？（y/n）"
 
     # --- 削除: 確認 ---
     if current_state == "delete_confirm":
-        if raw_input.strip() in ("はい", "yes", "y"):
+        if raw_input.strip().lower() in ("y", "yes"):
             member = MEMBERS[session["member_key"]]
+            member_num = session.get("member_num", "")
             target_room = session["target_room_id"]
             err = _delete_room_mode(member["dir"], target_room)
             state.talk_session = {}
             if err:
                 return err
             log.info(f"/talk 対話: {member['name']} room={target_room} 削除")
-            return f"削除しました。ルームID {target_room} の会話モードはデフォルトとなります。"
+            return f"{member_num}:{member['name']}のルームID {target_room} の会話モード設定を削除しました。デフォルトとなります。"
         state.talk_session = {}
         return "キャンセルしました。"
 

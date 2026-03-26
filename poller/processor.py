@@ -47,6 +47,7 @@ from poller.chatwork import (
 from poller.ai_runner import AIResult, ai_mode_label, run_ai
 from poller.google_workspace import resolve_urls
 from poller.commands import (
+    handle_help,
     handle_status,
     handle_session,
     handle_system,
@@ -271,7 +272,7 @@ def process_message(body: dict[str, Any]) -> None:
 
     # --- コマンド判定（デバッグ専用アカウント宛 → MEMBERS 外でも処理）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
-    _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
+    _COMMAND_KEYWORDS = {"/help", "/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
     is_command = (raw_command in _COMMAND_KEYWORDS
                   or re.match(r'^/talk\s+\d', raw_command)
                   or re.match(r'^/status\s+\d+$', raw_command))
@@ -303,6 +304,9 @@ def process_message(body: dict[str, Any]) -> None:
         debug_token = DEBUG_NOTICE_CHATWORK_TOKEN
         log.info(f"デバッグコマンド '{raw_command}' 検出 (room={room_id})")
 
+        if raw_command == "/help":
+            chatwork_post(debug_token, room_id, handle_help())
+            return
         status_match = re.match(r'^/status\s+(\d+)$', raw_command)
         if raw_command == "/status":
             # /status（引数なし）: メンバー番号一覧を返す

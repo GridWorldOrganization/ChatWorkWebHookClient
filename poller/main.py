@@ -228,9 +228,8 @@ def main() -> None:
         )
         room_specific = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
         all_instruction_files = common_files + member_files + room_specific
-        log.info(f"    指示ファイル: {len(all_instruction_files)}件")
-        for f in all_instruction_files:
-            log.info(f"      - {os.path.basename(f)}")
+        file_names = ", ".join(os.path.basename(f) for f in all_instruction_files)
+        log.info(f"    指示ファイル: {len(all_instruction_files)}件 [{file_names}]")
 
     # --- 残留プロセス cleanup ---
     orphans = kill_orphan_processes()
