@@ -418,7 +418,7 @@ def handle_talk_start() -> str:
         default_mode, _ = load_talk_modes(m["dir"])
         mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
         lines.append(f"  {idx}: {m['name']}（デフォルト会話モード: {default_mode} {mode_name}）")
-    lines.append("\n番号を返信してください。")
+    lines.append("番号を返信してください。")
     state.talk_session = {"state": "select_member"}
     return "\n".join(lines)
 
@@ -451,15 +451,15 @@ def handle_talk_session_reply(raw_input: str) -> str | None:
         lines = [f"[info][title]{num}:{member['name']}の会話モード[/title]"]
         lines.append(f"デフォルト: {default_mode}（{default_name}）")
         if room_modes:
-            lines.append(f"\nルーム別設定:")
+            lines.append(f"ルーム別設定:")
             for rid, mode in sorted(room_modes.items()):
                 lines.append(_room_display(rid, mode, room_names))
         else:
             lines.append(f"ルーム別設定: なし")
-        lines.append(f"\n1: ルーム別会話設定追加")
+        lines.append(f"1: ルーム別会話設定追加")
         lines.append(f"2: ルーム別会話設定変更")
         lines.append(f"3: ルーム別会話設定削除")
-        lines.append(f"\n番号を返信してください。[/info]")
+        lines.append(f"番号を返信してください。[/info]")
 
         state.talk_session = {
             "state": "select_action",

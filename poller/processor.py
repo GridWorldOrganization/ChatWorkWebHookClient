@@ -202,10 +202,10 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
     log.info("ルーム情報収集完了")
 
     followup_prompt = (
-        f"あなたは「{member['name']}」としてChatworkで返信します。\n"
+        f"あなたは「{member['name']}」です。\n"
         f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
-        f"[rp]タグや[To:]タグは絶対に含めないでください。タグはシステムが自動付与します。\n\n"
+        f"タグやメタ情報は一切含めないでください。\n\n"
         f"=== 返信の指示 ===\n{instructions}\n\n"
         f"=== 元の受信メッセージ ===\n{message}\n\n"
         f"=== 収集した情報 ===\n{room_context}\n\n"
@@ -519,7 +519,7 @@ def process_message(body: dict[str, Any]) -> None:
             )
             if res.status_code == 200:
                 others = [
-                    f"  - {m['name']}(ID:{m['account_id']})"
+                    f"  - {m['name']}"
                     for m in res.json()
                     if str(m["account_id"]) != str(member["account_id"]) and m.get("role", "") != "readonly"
                 ]
@@ -531,29 +531,29 @@ def process_message(body: dict[str, Any]) -> None:
     # --- Google URL の内容取得 ---
     google_content = resolve_urls(message)
 
-    # --- プロンプト構築 ---
+    # --- プロンプト構築（ChatWork固有情報はClaude に渡さない）---
     prior_context = body.get("_prior_context", "")
+    # メッセージ本文から [To:] [rp] タグを除去してClaudeに渡す
+    clean_message = re.sub(r'\[To:\d+\][^\n]*\n?', '', message).strip()
+    clean_message = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', clean_message).strip()
     prompt = (
-        f"あなたは「{member['name']}」としてChatworkで返信します。\n"
+        f"あなたは「{member['name']}」です。\n"
         f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
-        f"送信者は「{sender_name}」（アカウントID: {sender}）です。\n"
-        f"通常は送信者への返信になります。[rp]タグはシステムが自動付与するので出力不要です。\n"
-        f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n\n"
+        f"タグやメタ情報は一切含めないでください。\n"
+        f"送信者は「{sender_name}」です。\n\n"
         f"{room_members_info}"
         f"=== 返信の指示 ===\n{instructions}\n\n"
     )
     if prior_context:
-        prompt += f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n{prior_context}\n\n"
+        prior_clean = re.sub(r'\[To:\d+\][^\n]*\n?', '', prior_context).strip()
+        prior_clean = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', prior_clean).strip()
+        prompt += f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n{prior_clean}\n\n"
     prompt += (
-        f"=== 受信メッセージ情報（これに返信すること） ===\n"
-        f"ルームID: {room_id}\n"
-        f"送信者アカウントID: {sender}\n"
-        f"送信者名: {sender_name}\n"
-        f"メッセージID: {message_id}\n"
-        f"受信時刻: {timestamp}\n\n"
-        f"=== メッセージ本文 ===\n{message}"
+        f"=== 受信メッセージ（これに返信すること） ===\n"
+        f"送信者: {sender_name}\n\n"
+        f"{clean_message}"
     )
     if google_content:
         prompt += f"\n\n{google_content}"
@@ -618,8 +618,13 @@ def process_message(body: dict[str, Any]) -> None:
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
     finally:
         ai_elapsed = time.time() - ai_start_time
+        remaining = CLAUDE_TIMEOUT - ai_elapsed
+        if remaining > 0:
+            log.info(f"[{member['name']}] タイムアウト待機: 残り{remaining:.0f}秒")
+            time.sleep(remaining)
+        total_elapsed = time.time() - ai_start_time
         notify_error(
-            f"Claude終了 [{member['name']}] {ai_elapsed:.1f}秒 / ルーム: {_room_label}",
+            f"Claude終了 [{member['name']}] {total_elapsed:.1f}秒 / ルーム: {_room_label}",
             "",
         )
         if member_key:

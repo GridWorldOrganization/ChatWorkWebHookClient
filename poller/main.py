@@ -22,6 +22,7 @@ from poller.config import (
     CLAUDE_COMMAND,
     CLAUDE_MODEL,
     CLAUDE_TIMEOUT,
+    DEBUG_NOTICE_CHATWORK_ACCOUNT_ID,
     DEBUG_NOTICE_CHATWORK_ROOM_ID,
     DEBUG_NOTICE_CHATWORK_TOKEN,
     DEBUG_NOTICE_ENABLED,
@@ -84,12 +85,52 @@ def _drain_sqs_queue(sqs: Any) -> list[dict[str, Any]]:
     return all_messages
 
 
+def _is_debug_room_message(body_data: dict[str, Any]) -> bool:
+    """デバッグルーム宛のメッセージか判定する"""
+    if not DEBUG_NOTICE_CHATWORK_ACCOUNT_ID or not DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        return False
+    room_id = body_data.get("room_id", "")
+    message = body_data.get("body", "")
+    return (
+        str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
+        and (f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message
+             or f"[rp aid={DEBUG_NOTICE_CHATWORK_ACCOUNT_ID} " in message)
+    )
+
+
+def _process_debug_message(body_data: dict[str, Any], msg: dict[str, Any], sqs: Any) -> None:
+    """デバッグルームのメッセージをロックなしで即時処理する"""
+    try:
+        from poller.processor import process_message
+        process_message(body_data)
+    except Exception as e:
+        log.error(f"デバッグメッセージ処理エラー: {e}")
+    finally:
+        try:
+            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
+        except Exception as e:
+            log.error(f"SQSメッセージ削除エラー: {e}")
+
+
 def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
     """メッセージをメンバーごとにグループ化し、並列スレッドで処理する"""
     member_messages: dict[str, list[tuple[dict, dict]]] = {}
+    threads: list[threading.Thread] = []
+
     for msg in all_messages:
         try:
             body_data = json.loads(msg["Body"])
+
+            # デバッグルーム宛 → メンバーロックを経由せず即時処理（別スレッド）
+            if _is_debug_room_message(body_data):
+                t = threading.Thread(
+                    target=_process_debug_message, args=(body_data, msg, sqs), daemon=True,
+                )
+                t.start()
+                threads.append(t)
+                log.info(f"デバッグメッセージ即時処理スレッド起動")
+                continue
+
             member = find_target_member(body_data)
             if not member:
                 member = MEMBERS[next(iter(MEMBERS))]
@@ -99,7 +140,6 @@ def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
             log.error(f"メッセージ解析エラー: {e}")
             sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
 
-    threads: list[threading.Thread] = []
     for mk, msg_list in member_messages.items():
         t = threading.Thread(target=process_member_batch, args=(mk, msg_list, sqs), daemon=True)
         t.start()
@@ -230,6 +270,36 @@ def main() -> None:
         all_instruction_files = common_files + member_files + room_specific
         file_names = ", ".join(os.path.basename(f) for f in all_instruction_files)
         log.info(f"    指示ファイル: {len(all_instruction_files)}件 [{file_names}]")
+
+    # --- プロンプトチェッカー（指示ファイルにChatWork固有情報がないか検査）---
+    _ng_keywords = ["chatwork", "チャットワーク", "[To:", "[rp ", "account_id", "アカウントID", "ルームID"]
+    _prompt_warnings = []
+    for key, member in MEMBERS.items():
+        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        _member_md = sorted(
+            f for f in glob.glob(os.path.join(member["dir"], "*.md"))
+            if not os.path.basename(f).startswith("room_")
+            and not os.path.basename(f).startswith("chat_history_")
+            and os.path.basename(f) != "CLAUDE.md"
+        )
+        _room_md = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
+        for md_path in _common + _member_md + _room_md:
+            try:
+                with open(md_path, "r", encoding="utf-8") as f:
+                    content = f.read().lower()
+                for kw in _ng_keywords:
+                    if kw.lower() in content:
+                        _prompt_warnings.append(f"  [{member['name']}] {os.path.basename(md_path)} に '{kw}' を検出")
+                        break
+            except Exception:
+                pass
+    if _prompt_warnings:
+        log.warning("--- プロンプトチェッカー: 警告 ---")
+        log.warning("指示ファイルにChatWork固有情報が含まれています（Claudeの拒否原因になり得ます）:")
+        for w in _prompt_warnings:
+            log.warning(w)
+    else:
+        log.info("プロンプトチェッカー: OK（ChatWork固有情報なし）")
 
     # --- 残留プロセス cleanup ---
     orphans = kill_orphan_processes()
