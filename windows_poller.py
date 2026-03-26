@@ -1007,6 +1007,190 @@ def _resolve_sender(body, member):
     return sender, sender_name
 
 
+# =============================================================================
+#  Google Workspace URL 検出・内容取得
+# =============================================================================
+
+# Google URL パターン: ドキュメントID を抽出
+_GOOGLE_URL_PATTERNS = [
+    # Spreadsheet: docs.google.com/spreadsheets/d/{ID}/...
+    (re.compile(r'https?://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)'), "spreadsheet"),
+    # Document: docs.google.com/document/d/{ID}/...
+    (re.compile(r'https?://docs\.google\.com/document/d/([a-zA-Z0-9_-]+)'), "document"),
+    # Presentation: docs.google.com/presentation/d/([ID})/...
+    (re.compile(r'https?://docs\.google\.com/presentation/d/([a-zA-Z0-9_-]+)'), "presentation"),
+    # Drive file: drive.google.com/file/d/{ID}/...
+    (re.compile(r'https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+)'), "drive_file"),
+    # Drive open: drive.google.com/open?id={ID}
+    (re.compile(r'https?://drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)'), "drive_file"),
+]
+
+
+def _detect_google_urls(message):
+    """メッセージから Google Workspace の URL を検出し、[(file_id, file_type, url)] を返す"""
+    found = []
+    seen_ids = set()
+    for pattern, file_type in _GOOGLE_URL_PATTERNS:
+        for match in pattern.finditer(message):
+            file_id = match.group(1)
+            if file_id not in seen_ids:
+                seen_ids.add(file_id)
+                found.append((file_id, file_type, match.group(0)))
+    return found
+
+
+def _fetch_google_content(file_id, file_type):
+    """Google API でファイルの内容を取得する。失敗時は None を返す"""
+    token_path = os.path.join(SCRIPT_DIR, "google_token.json")
+    if not os.path.exists(token_path):
+        return None
+
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        from google.auth.transport.requests import Request
+    except ImportError:
+        return None
+
+    try:
+        scopes = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/spreadsheets.readonly"]
+        creds = Credentials.from_authorized_user_file(token_path, scopes)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+    except Exception as e:
+        log.error(f"Google認証エラー: {e}")
+        return None
+
+    try:
+        if file_type == "spreadsheet":
+            return _fetch_spreadsheet(creds, file_id)
+        elif file_type == "document":
+            return _fetch_document(creds, file_id)
+        elif file_type == "presentation":
+            return _fetch_presentation(creds, file_id)
+        elif file_type == "drive_file":
+            return _fetch_drive_file(creds, file_id)
+    except Exception as e:
+        log.error(f"Google内容取得エラー ({file_type} {file_id}): {e}")
+        return f"[取得エラー: {str(e)[:200]}]"
+
+    return None
+
+
+def _fetch_spreadsheet(creds, file_id):
+    """スプレッドシートの全シート内容をテキストで返す"""
+    from googleapiclient.discovery import build
+
+    sheets = build("sheets", "v4", credentials=creds)
+    meta = sheets.spreadsheets().get(spreadsheetId=file_id).execute()
+    title = meta["properties"]["title"]
+    sheet_names = [s["properties"]["title"] for s in meta["sheets"]]
+
+    parts = [f"スプレッドシート: {title}"]
+    for sheet_name in sheet_names:
+        result = sheets.spreadsheets().values().get(
+            spreadsheetId=file_id, range=f"'{sheet_name}'",
+        ).execute()
+        values = result.get("values", [])
+        if values:
+            parts.append(f"\n[シート: {sheet_name}] ({len(values)}行)")
+            for row in values[:100]:  # 最大100行
+                parts.append("\t".join(str(cell) for cell in row))
+            if len(values) > 100:
+                parts.append(f"  ... 以下省略（全{len(values)}行）")
+        else:
+            parts.append(f"\n[シート: {sheet_name}] (空)")
+    return "\n".join(parts)
+
+
+def _fetch_document(creds, file_id):
+    """Googleドキュメントの内容をテキストで返す"""
+    from googleapiclient.discovery import build
+
+    drive = build("drive", "v3", credentials=creds)
+    # ドキュメントをプレーンテキストでエクスポート
+    content = drive.files().export(fileId=file_id, mimeType="text/plain").execute()
+    if isinstance(content, bytes):
+        content = content.decode("utf-8")
+    # メタ情報
+    meta = drive.files().get(fileId=file_id, fields="name").execute()
+    title = meta.get("name", "不明")
+    # 長すぎる場合は切り詰め
+    if len(content) > 10000:
+        content = content[:10000] + f"\n\n... 以下省略（全{len(content)}文字）"
+    return f"ドキュメント: {title}\n\n{content}"
+
+
+def _fetch_presentation(creds, file_id):
+    """Googleスライドの内容をテキストで返す"""
+    from googleapiclient.discovery import build
+
+    slides_service = build("slides", "v1", credentials=creds)
+    presentation = slides_service.presentations().get(presentationId=file_id).execute()
+    title = presentation.get("title", "不明")
+
+    parts = [f"プレゼンテーション: {title}"]
+    for i, slide in enumerate(presentation.get("slides", []), 1):
+        texts = []
+        for element in slide.get("pageElements", []):
+            shape = element.get("shape", {})
+            text_content = shape.get("text", {})
+            for text_elem in text_content.get("textElements", []):
+                run = text_elem.get("textRun", {})
+                if run.get("content", "").strip():
+                    texts.append(run["content"].strip())
+        if texts:
+            parts.append(f"\n[スライド {i}]")
+            parts.append("\n".join(texts))
+    return "\n".join(parts)
+
+
+def _fetch_drive_file(creds, file_id):
+    """Driveファイルのメタ情報を返す（内容はMIMEタイプ次第）"""
+    from googleapiclient.discovery import build
+
+    drive = build("drive", "v3", credentials=creds)
+    meta = drive.files().get(fileId=file_id, fields="name, mimeType, size").execute()
+    name = meta.get("name", "不明")
+    mime = meta.get("mimeType", "不明")
+    size = meta.get("size", "不明")
+
+    # Google Workspace ファイルは適切なハンドラに委譲
+    if "spreadsheet" in mime:
+        return _fetch_spreadsheet(creds, file_id)
+    elif "document" in mime:
+        return _fetch_document(creds, file_id)
+    elif "presentation" in mime:
+        return _fetch_presentation(creds, file_id)
+    elif mime.startswith("text/"):
+        content = drive.files().get_media(fileId=file_id).execute()
+        if isinstance(content, bytes):
+            content = content.decode("utf-8", errors="replace")
+        if len(content) > 10000:
+            content = content[:10000] + f"\n\n... 以下省略"
+        return f"ファイル: {name} ({mime})\n\n{content}"
+    else:
+        return f"ファイル: {name}\n  MIMEタイプ: {mime}\n  サイズ: {size}バイト\n  ※ テキスト以外のファイルは内容を取得できません"
+
+
+def _resolve_google_urls(message):
+    """メッセージ内の Google URL を検出し、内容を取得してテキストを返す。なければ空文字"""
+    urls = _detect_google_urls(message)
+    if not urls:
+        return ""
+
+    parts = []
+    for file_id, file_type, url in urls:
+        log.info(f"Google URL検出: type={file_type} id={file_id}")
+        content = _fetch_google_content(file_id, file_type)
+        if content:
+            parts.append(f"=== 参照ファイル: {url} ===\n{content}")
+        else:
+            parts.append(f"=== 参照ファイル: {url} ===\n[内容を取得できませんでした]")
+
+    return "\n\n".join(parts)
+
+
 def _apply_reply_tag(reply, token, room_id, sender, message_id):
     """AI の返信に [rp] タグを自動付与する。既にタグがある場合はスキップ"""
     if reply.startswith("[To:") or reply.startswith("[rp "):
@@ -1193,6 +1377,9 @@ def process_message(body: dict):
         except Exception as e:
             log.error(f"ルームメンバー取得エラー(モード3): {e}")
 
+    # --- Google URL の内容取得 ---
+    google_content = _resolve_google_urls(message)
+
     # --- プロンプト構築 ---
     prior_context = body.get("_prior_context", "")
     prompt = (
@@ -1217,6 +1404,8 @@ def process_message(body: dict):
         f"受信時刻: {timestamp}\n\n"
         f"=== メッセージ本文 ===\n{message}"
     )
+    if google_content:
+        prompt += f"\n\n{google_content}"
 
     # --- AI 実行 ---
     try:
