@@ -18,7 +18,7 @@ ChatWork → API Gateway → Lambda → SQS → ポーラー(Win PC) → Anthrop
 
 | 設定 | 方式 | 特徴 |
 |------|------|------|
-| `USE_DIRECT_API=1`（デフォルト・推奨） | **Anthropic API 直接呼び出し** | Python `anthropic` ライブラリで Messages API を直接呼び出し。Node.js の起動オーバーヘッド（2〜5秒/回）がなく**高速** |
+| `USE_DIRECT_API=1` | **Anthropic API 直接呼び出し** | Python `anthropic` ライブラリで Messages API を直接呼び出し。高速だが従量課金（APIキー必要） |
 | `USE_DIRECT_API=0` | **Claude Code CLI** | `claude -p` コマンドを subprocess で実行する従来方式。CLAUDE.md やツール連携が必要な場合に使用 |
 
 ### 必要な設定
@@ -131,7 +131,7 @@ ClaudeWorkMulti/
 
 - **複数AIメンバー対応** — フォルダ追加だけでメンバー追加（コード変更不要）
 - **並列処理** — メンバーごとに別スレッドで並列実行
-- **API直接呼び出し** — Anthropic API を直接利用し高速応答（CLI方式にも切り替え可能）
+- **API直接呼び出し** — Anthropic API を直接利用し高速応答（従量課金。CLI方式にも切り替え可能）
 - **会話モード** — メンテナンス / 業務 / ペルソナ / ペルソナ+ の4種類
 - **ルーム別設定** — ルームごとに口調・会話モードを切り替え
 - **AI同士の会話** — 人間が起点で開始、設定ターン数で自動停止
@@ -157,7 +157,7 @@ ClaudeWorkMulti/
 
 | 方式 | 必要なもの |
 |------|-----------|
-| **Anthropic API 直接**（推奨） | Anthropic API キー（[console.anthropic.com](https://console.anthropic.com/)） |
+| **Anthropic API 直接**（従量課金） | Anthropic API キー（[console.anthropic.com](https://console.anthropic.com/)） |
 | **Claude Code CLI** | Node.js + Claude Code（`npm install -g @anthropic-ai/claude-code`） |
 
 ### オプション
