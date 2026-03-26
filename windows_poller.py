@@ -826,61 +826,67 @@ def handle_session_command(room_id):
 
 
 def handle_gws_command():
-    """/gws: Google Workspace API（Python）の接続状態を調べて報告する"""
+    """/gws: Google Workspace API（OAuth）の接続状態を調べて報告する"""
     lines = ["[info][title]/gws: Google Workspace API[/title]"]
 
-    # キーファイルパスの取得
-    key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_PATH", "")
-    if not key_path:
+    # config.env チェック
+    email = os.environ.get("GOOGLE_EMAIL", "")
+    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+    if not client_id or not client_secret:
         lines.append("状態: 未設定")
-        lines.append("")
-        lines.append("config.env に以下を追加してください:")
-        lines.append("  GOOGLE_SERVICE_ACCOUNT_KEY_PATH=C:\\path\\to\\service-account.json")
+        lines.append("config.env に GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET を設定してください")
         lines.append("[/info]")
         return "\n".join(lines)
 
-    if not os.path.exists(key_path):
-        lines.append(f"状態: キーファイル未検出")
-        lines.append(f"  パス: {key_path}")
-        lines.append("[/info]")
-        return "\n".join(lines)
+    lines.append(f"Email: {email or '(未設定)'}")
+    lines.append(f"Client ID: {client_id[:20]}...")
 
     # ライブラリチェック
     try:
-        from google.oauth2 import service_account
+        from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
     except ImportError:
-        lines.append("状態: ライブラリ未インストール")
-        lines.append("  pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
+        lines.append("\n状態: ライブラリ未インストール")
+        lines.append("pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
         lines.append("[/info]")
         return "\n".join(lines)
 
-    # 認証チェック
-    try:
-        credentials = service_account.Credentials.from_service_account_file(
-            key_path,
-            scopes=["https://www.googleapis.com/auth/drive.readonly"],
-        )
-        lines.append("状態: 利用可能")
-        lines.append(f"  アカウント: {credentials.service_account_email}")
-        lines.append(f"  プロジェクト: {credentials.project_id}")
-    except Exception as e:
-        lines.append(f"状態: 認証エラー")
-        lines.append(f"  {e}")
+    # トークンチェック
+    token_path = os.path.join(SCRIPT_DIR, "google_token.json")
+    if not os.path.exists(token_path):
+        lines.append("\n状態: 未認証")
+        lines.append("check_gws.bat を実行して OAuth 認証を完了してください")
         lines.append("[/info]")
         return "\n".join(lines)
 
-    # Drive API 接続テスト
+    # 認証 + Drive 接続テスト
     try:
-        service = build("drive", "v3", credentials=credentials)
-        results = service.files().list(pageSize=3, fields="files(id, name)").execute()
+        creds = Credentials.from_authorized_user_file(token_path, [
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/spreadsheets",
+        ])
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+
+        drive = build("drive", "v3", credentials=creds)
+        results = drive.files().list(
+            pageSize=5,
+            fields="files(id, name)",
+            q="mimeType='application/vnd.google-apps.spreadsheet'",
+        ).execute()
         files = results.get("files", [])
-        lines.append(f"\n■ Drive API: 接続OK（{len(files)}件取得）")
+        lines.append(f"\n状態: 利用可能")
+        lines.append(f"■ Drive API: 接続OK")
+        lines.append(f"  スプレッドシート: {len(files)}件")
         for f in files:
             lines.append(f"  - {f['name']}")
     except Exception as e:
-        lines.append(f"\n■ Drive API: 接続エラー")
-        lines.append(f"  {str(e)[:200]}")
+        lines.append(f"\n状態: 接続エラー")
+        lines.append(f"  {str(e)[:300]}")
+        lines.append("check_gws.bat を再実行して再認証してください")
 
     lines.append("[/info]")
     return "\n".join(lines)
