@@ -182,7 +182,8 @@ def main() -> None:
         log.warning(f"キューパージスキップ（前回パージから60秒以内の可能性）: {e}")
 
     # --- 起動ログ ---
-    log.info("=== ChatWork Webhook Poller 起動 ===")
+    from poller.config import VERSION
+    log.info(f"=== ChatWork Webhook Poller v{VERSION} 起動 ===")
     log.info(f"キュー: {QUEUE_URL}")
     poll_mode = f"ロング（WaitTime={SQS_WAIT_TIME_SECONDS}秒）" if SQS_WAIT_TIME_SECONDS > 0 else f"ショート（間隔={POLL_INTERVAL}秒）"
     log.info(f"ポーリングモード: {poll_mode}")
