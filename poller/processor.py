@@ -135,7 +135,7 @@ def _load_instructions(member_dir: str, room_id: str = "", talk_mode: int = -1) 
         member_files: list[str] = []
         room_files: list[str] = []
     else:
-        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
+        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "01_persona_common*.md")))
         member_files = sorted(
             f for f in glob.glob(os.path.join(member_dir, "*.md"))
             if not os.path.basename(f).startswith("room_")

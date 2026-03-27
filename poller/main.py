@@ -247,7 +247,7 @@ def main() -> None:
         log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key}) account_id={member['account_id']} cw_token={token_status}")
         log.info(f"    許可ルーム: [{rooms_str}]")
         rules_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
-        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
+        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "01_persona_common*.md")))
         member_files = sorted(
             f for f in glob.glob(os.path.join(member["dir"], "*.md"))
             if not os.path.basename(f).startswith("room_")
@@ -266,7 +266,7 @@ def main() -> None:
     _ng_keywords = ["chatwork", "チャットワーク", "[To:", "[rp ", "account_id", "アカウントID", "ルームID"]
     _prompt_warnings = []
     for key, member in MEMBERS.items():
-        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")) + glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
+        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")) + glob.glob(os.path.join(MEMBERS_DIR, "01_persona_common*.md")))
         _member_md = sorted(
             f for f in glob.glob(os.path.join(member["dir"], "*.md"))
             if not os.path.basename(f).startswith("room_")
