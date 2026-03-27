@@ -119,30 +119,37 @@ def _needs_followup(reply_text: str) -> bool:
 
 
 def _load_instructions(member_dir: str, room_id: str = "", talk_mode: int = -1) -> str:
-    """共通ルール + メンバー固有 + ルーム固有の .md を読み込み、指示文を構築する"""
-    # モード 0（ログ）/ 1（業務）ではペルソナファイルを読み込まない
+    """共通ルール + ペルソナ共通 + メンバー固有 + ルーム固有の .md を読み込み、指示文を構築する"""
+    # モード 0（ログ）: ルールのみ（00_*.md）。ペルソナ系は一切読み込まない
+    # モード 1（業務）: ルールのみ（00_*.md）。ペルソナ系は一切読み込まない
+    # モード 2以上: ルール + ペルソナ共通(10_*.md) + メンバー固有 + ルーム固有
     skip_persona = talk_mode in (0, 1)
-    if skip_persona:
-        log.info(f"モード{talk_mode}: ペルソナファイル読み込みスキップ（共通ルールのみ）")
 
-    common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+    # 00_*.md: 共通ルール（全モード共通）
+    rules_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+
+    # 10_*.md: ペルソナ共通ルール（モード2以上のみ）
     if skip_persona:
-        member_files = []
+        log.info(f"モード{talk_mode}: ペルソナ系ファイル読み込みスキップ（ルールのみ）")
+        persona_common_files: list[str] = []
+        member_files: list[str] = []
+        room_files: list[str] = []
     else:
+        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
         member_files = sorted(
             f for f in glob.glob(os.path.join(member_dir, "*.md"))
             if not os.path.basename(f).startswith("room_")
             and not os.path.basename(f).startswith("chat_history_")
             and os.path.basename(f) != "CLAUDE.md"
         )
-    room_files: list[str] = []
-    if room_id and not skip_persona:
-        room_md = os.path.join(member_dir, f"room_{room_id}.md")
-        if os.path.exists(room_md):
-            room_files = [room_md]
+        room_files = []
+        if room_id:
+            room_md = os.path.join(member_dir, f"room_{room_id}.md")
+            if os.path.exists(room_md):
+                room_files = [room_md]
 
     instructions: list[str] = []
-    for md_path in common_files + member_files + room_files:
+    for md_path in rules_files + persona_common_files + member_files + room_files:
         try:
             with open(md_path, "r", encoding="utf-8") as f:
                 content = f.read().strip()

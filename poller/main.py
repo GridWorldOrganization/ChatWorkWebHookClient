@@ -246,7 +246,8 @@ def main() -> None:
         token_status = "設定済" if member["cw_token"] else "未設定"
         log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key}) account_id={member['account_id']} cw_token={token_status}")
         log.info(f"    許可ルーム: [{rooms_str}]")
-        common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        rules_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        persona_common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
         member_files = sorted(
             f for f in glob.glob(os.path.join(member["dir"], "*.md"))
             if not os.path.basename(f).startswith("room_")
@@ -254,7 +255,7 @@ def main() -> None:
             and os.path.basename(f) != "CLAUDE.md"
         )
         room_specific = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
-        all_instruction_files = common_files + member_files + room_specific
+        all_instruction_files = rules_files + persona_common_files + member_files + room_specific
         file_names = ", ".join(os.path.basename(f) for f in all_instruction_files)
         log.info(f"    指示ファイル: {len(all_instruction_files)}件 [{file_names}]")
         # デバッグルームがALLOWED_ROOMSに含まれている場合の警告
@@ -265,7 +266,7 @@ def main() -> None:
     _ng_keywords = ["chatwork", "チャットワーク", "[To:", "[rp ", "account_id", "アカウントID", "ルームID"]
     _prompt_warnings = []
     for key, member in MEMBERS.items():
-        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")) + glob.glob(os.path.join(MEMBERS_DIR, "10_*.md")))
         _member_md = sorted(
             f for f in glob.glob(os.path.join(member["dir"], "*.md"))
             if not os.path.basename(f).startswith("room_")
